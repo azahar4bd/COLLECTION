@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>কালেকশন ম্যানেজার — GitHub ভিত্তিক</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+</head>
+<body>
+
+<!-- ===================== সেটআপ / লগইন স্ক্রিন ===================== -->
+<div id="setup-screen" class="setup-screen hidden">
+  <div class="setup-card">
+    <div class="setup-logo">💰</div>
+    <h1>কালেকশন ম্যানেজার</h1>
+    <p class="setup-sub">CSV থেকে ডাটাবেজ · GitHub-এ সেভ · Netlify-এ চালু</p>
+
+    <div class="field">
+      <label>GitHub Personal Access Token (PAT) <span class="req">*</span></label>
+      <input type="password" id="set-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+      <small>তৈরি করতে: GitHub → Settings → Developer settings → Personal access tokens → Fine-grained token (Contents: Read &amp; Write)</small>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Repo Owner <span class="req">*</span></label>
+        <input type="text" id="set-owner" placeholder="your-username" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Repo Name <span class="req">*</span></label>
+        <input type="text" id="set-repo" placeholder="collection-db" autocomplete="off">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Branch</label>
+        <input type="text" id="set-branch" value="main" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>রিফ্রেশ ইন্টারভাল (সেকেন্ড)</label>
+        <input type="number" id="set-refresh" value="60" min="10" max="3600">
+      </div>
+    </div>
+    <div class="field">
+      <label>ডাটা ফাইলের পাথ (ডিফল্ট ঠিক আছে)</label>
+      <input type="text" id="set-members-path" value="data/members.json" autocomplete="off">
+      <input type="text" id="set-collections-path" value="data/collections.json" autocomplete="off" style="margin-top:6px">
+    </div>
+    <label class="check-row">
+      <input type="checkbox" id="set-autorefresh" checked>
+      প্রতিনিয়ত GitHub থেকে আপডেট নিজে নিজে নাও (Auto-sync)
+    </label>
+
+    <div id="setup-error" class="setup-error hidden"></div>
+    <div class="setup-actions">
+      <button class="btn ghost" id="btn-test-conn">🔗 সংযোগ পরীক্ষা</button>
+      <button class="btn primary" id="btn-save-settings">💾 সংযোগ সেভ করুন</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== মূল অ্যাপ ===================== -->
+<div id="app" class="hidden">
+
+  <header class="app-header">
+    <div class="header-top">
+      <div class="brand">
+        <span class="brand-icon">💰</span>
+        <div>
+          <h1>কালেকশন ম্যানেজার</h1>
+          <span id="repo-badge" class="repo-badge">—</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="btn-refresh" title="রিফ্রেশ">🔄</button>
+        <button class="icon-btn" id="btn-upload" title="CSV আপলোড">📤</button>
+        <button class="icon-btn" id="btn-settings" title="সেটিংস">⚙️</button>
+      </div>
+    </div>
+    <div class="header-meta">
+      <span id="sync-status">সিঙ্ক হয়নি</span>
+      <span id="sync-dot" class="dot"></span>
+    </div>
+
+    <nav class="tabs">
+      <button class="tab active" data-page="dues">📋 বাকী / আদায় তালিকা</button>
+      <button class="tab" data-page="today">✅ আজকের আদায়</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ পেজ ১ : বাকী / আদায় তালিকা ============ -->
+    <section id="page-dues">
+      <div class="toolbar">
+        <input type="search" id="search" class="search" placeholder="🔍 কোড / নাম / কেন্দ্র খুঁজুন…">
+        <select id="center-filter" class="select"><option value="">সব কেন্দ্র</option></select>
+      </div>
+
+      <!-- কিস্তি বাকী তালিকা -->
+      <div class="table-card" id="sec-remaining">
+        <button class="table-head" data-collapse="sec-remaining">
+          <span class="th-title">🕒 কিস্তি বাকী তালিকা <span class="badge warn" id="count-remaining">০</span></span>
+          <span class="chevron">▼</span>
+        </button>
+        <div class="table-body">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="col-exp"></th>
+                  <th>মেম্বার কোড</th>
+                  <th>মেম্বার নাম</th>
+                  <th>সেন্টার কোড</th>
+                  <th>সেন্টার নাম</th>
+                  <th class="amt">কিস্তি (৳)</th>
+                </tr>
+              </thead>
+              <tbody id="tbl-remaining"></tbody>
+            </table>
+          </div>
+          <div class="empty hidden" id="empty-remaining">✅ বাকি কিস্তি নেই — সবাই আদায় হয়েছে!</div>
+        </div>
+      </div>
+
+      <!-- কিস্তি পেইড তালিকা -->
+      <div class="table-card" id="sec-paid">
+        <button class="table-head" data-collapse="sec-paid">
+          <span class="th-title">✅ কিস্তি পেইড তালিকা <span class="badge ok" id="count-paid">০</span></span>
+          <span class="chevron">▼</span>
+        </button>
+        <div class="table-body">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="col-exp"></th>
+                  <th>মেম্বার কোড</th>
+                  <th>মেম্বার নাম</th>
+                  <th>সেন্টার কোড</th>
+                  <th>সেন্টার নাম</th>
+                  <th class="amt">কিস্তি (৳)</th>
+                </tr>
+              </thead>
+              <tbody id="tbl-paid"></tbody>
+            </table>
+          </div>
+          <div class="empty hidden" id="empty-paid">এখনো কেউ কিস্তি দেননি। উপরের বাকী তালিকা থেকে আদায় করুন।</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ পেজ ২ : আজকের আদায় ============ -->
+    <section id="page-today" class="hidden">
+      <div class="toolbar">
+        <h2 id="today-title">আজকের আদায়</h2>
+        <select id="today-filter" class="select">
+          <option value="today">আজকের</option>
+          <option value="all">সব রেকর্ড</option>
+        </select>
+      </div>
+
+      <div class="table-card">
+        <div class="table-body">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>মেম্বার কোড</th>
+                  <th>মেম্বার নাম</th>
+                  <th>সেন্টার কোড</th>
+                  <th class="amt">কিস্তি (৳)</th>
+                  <th class="amt">সঞ্চয় (৳)</th>
+                  <th class="amt">DPS (৳)</th>
+                  <th class="amt">মোট (৳)</th>
+                  <th class="col-del"></th>
+                </tr>
+              </thead>
+              <tbody id="tbl-today"></tbody>
+            </table>
+          </div>
+          <div class="empty hidden" id="empty-today">আজ এখনো কোনো আদায় হয়নি।</div>
+        </div>
+        <tfoot class="today-footer">
+          <div class="totals">
+            <div class="total-box"><span>মোট কিস্তি</span><strong id="tot-kisti">০</strong></div>
+            <div class="total-box"><span>মোট সঞ্চয়</span><strong id="tot-savings">০</strong></div>
+            <div class="total-box"><span>মোট DPS</span><strong id="tot-dps">০</strong></div>
+            <div class="total-box highlight"><span>মোট সংখ্যা</span><strong id="tot-count">০</strong></div>
+          </div>
+        </tfoot>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ===================== CSV আপলোড / ম্যাপিং মোডাল ===================== -->
+<div id="csv-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>📤 CSV আপলোড করুন</h3>
+      <button class="close-btn" data-close="csv-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint">নতুন CSV আপলোড করলে ডাটাবেজ আপডেট হবে (মেম্বার কোড অনুযায়ী মিলিয়ে)।</p>
+      <label class="drop-zone" id="drop-zone">
+        <input type="file" id="csv-file" accept=".csv,text/csv" hidden>
+        <span>📁 CSV ফাইল নির্বাচন করুন বা এখানে ছুড়ে দিন</span>
+        <small>UTF-8 এনকোডিংয়ে সেভ করা CSV ব্যবহার করুন</small>
+      </label>
+
+      <div id="csv-preview-wrap" class="hidden">
+        <h4>কলাম ম্যাপিং করুন <small>(CSV হেডার → অ্যাপ ফিল্ড)</small></h4>
+        <div class="mapping-grid" id="mapping-grid"></div>
+        <h4>প্রিভিউ (প্রথম ৫ সারি)</h4>
+        <div class="table-wrap small">
+          <table id="csv-preview"><thead></thead><tbody></tbody></table>
+        </div>
+        <label class="check-row danger-zone">
+          <input type="checkbox" id="csv-replace">
+          পুরনো ডাটাবেজ মুছে শুধু এই CSV দিয়ে তৈরি করুন (Replace all)
+        </label>
+        <div id="csv-error" class="setup-error hidden"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="csv-modal">বাতিল</button>
+      <button class="btn primary" id="btn-apply-csv" disabled>💾 ডাটাবেজ আপডেট করুন</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== মেম্বার ডিটেইল / আদায় পopup ===================== -->
+<div id="member-modal" class="modal-overlay hidden">
+  <div class="modal sheet">
+    <div class="modal-head">
+      <h3 id="mm-name">—</h3>
+      <button class="close-btn" data-close="member-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="detail-grid" id="mm-details"></div>
+
+      <div class="history-box hidden" id="mm-history-box">
+        <h4>সম্প্রতির আদায়</h4>
+        <div id="mm-history"></div>
+      </div>
+
+      <div class="collect-section">
+        <h4>💵 টাকা আদায়</h4>
+        <div class="pay-toggle">
+          <button class="pay-opt active" id="pay-yes" data-paid="true">✔ টাকা দেওয়া হয়েছে</button>
+          <button class="pay-opt" id="pay-no" data-paid="false">✖ টাকা দেওয়া হয়নি</button>
+        </div>
+
+        <div id="amount-fields">
+          <div class="field-row3">
+            <div class="field">
+              <label>কিস্তি (৳)</label>
+              <input type="number" id="in-kisti" inputmode="decimal" min="0" step="0.01">
+            </div>
+            <div class="field">
+              <label>সঞ্চয় (৳)</label>
+              <input type="number" id="in-savings" inputmode="decimal" min="0" step="0.01">
+            </div>
+            <div class="field">
+              <label>DPS (৳)</label>
+              <input type="number" id="in-dps" inputmode="decimal" min="0" step="0.01">
+            </div>
+          </div>
+          <div class="total-line">মোট আদায়: <strong id="in-total">৳ ০</strong></div>
+        </div>
+
+        <div class="field next-date-field hidden" id="next-date-wrap">
+          <label>পরবর্তী টাকা দেওয়ার তারিখ <span class="req">*</span></label>
+          <input type="date" id="in-next-date">
+        </div>
+
+        <div id="collect-error" class="setup-error hidden"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="member-modal">বন্ধ</button>
+      <button class="btn primary" id="btn-save-collection">💾 আদায় সেভ করুন</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<input type="file" id="hidden-csv-input" accept=".csv,text/csv" hidden>
+
+<script src="app.js"></script>
+</body>
+</html>
