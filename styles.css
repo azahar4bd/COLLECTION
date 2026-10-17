@@ -302,3 +302,41 @@ th.col-del, td.col-del { width: 44px; text-align: center; }
 @keyframes slide { from { left: -40%; } to { left: 100%; } }
 
 .req { color: var(--danger); }
+
+/* ================= v4: ফিল্টার · চিপস · ৩ টেবিল ================= */
+.filter-bar { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px; margin-bottom: 14px; }
+.filter-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.filter-item { flex: 1; min-width: 135px; display: flex; flex-direction: column; gap: 3px; }
+.filter-item label { font-size: 11px; font-weight: 600; color: var(--muted); }
+.filter-item .search, .filter-item .select { width: 100%; box-sizing: border-box; }
+.filter-item input[type="date"] {
+  width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1.5px solid var(--line);
+  border-radius: 10px; font-family: inherit; font-size: 13px; background: #fff;
+}
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.chip {
+  border: 1.5px solid var(--line); background: #fff; border-radius: 999px;
+  padding: 8px 13px; font-size: 12px; font-weight: 600; color: var(--ink); cursor: pointer;
+}
+.chip strong { font-size: 13px; }
+.chip.due { border-color: var(--warn); color: var(--warn); background: var(--warn-bg); }
+.chip.paid { border-color: var(--ok); color: var(--ok); background: var(--ok-bg); }
+.chip.partial { border-color: var(--primary); color: var(--primary-dark); background: #ccfbf1; }
+.badge.part { background: #ccfbf1; color: var(--primary-dark); }
+.tsum { padding: 10px 12px 12px; border-top: 1px solid var(--line); background: #f8fafc; }
+.no-data {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 40px 20px; text-align: center;
+}
+.no-data .big { font-size: 42px; margin-bottom: 10px; }
+.no-data p { color: var(--muted); margin-bottom: 18px; line-height: 1.8; }
+.detect-box {
+  background: #f0fdfa; border: 1.5px solid #99f6e4; border-radius: 10px;
+  padding: 10px 12px; margin: 10px 0; font-size: 12.5px; line-height: 1.9;
+}
+.detect-box b { color: var(--primary-dark); }
+.detect-box .miss { color: var(--danger); }
+.btn.big-up { width: 100%; padding: 14px; font-size: 15px; }
+@media (max-width: 560px) {
+  .totals { grid-template-columns: repeat(2, 1fr); }
+}

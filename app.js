@@ -1,16 +1,20 @@
 /* =========================================================
-   কালেকশন ম্যানেজার
-   - CSV → GitHub-ভিত্তিক ডাটাবেস (JSON ফাইল)
-   - প্রতিনিয়ত GitHub থেকে সিঙ্ক
-   - ২ পেজ: বাকী/আদায় তালিকা + আজকের আদায়
+   কালেকশন ম্যানেজার — কিস্তি রিপোর্ট (CSV)
+   - CSV অটো-ডিটেক্ট (কোনো সিলেকশন/ম্যাপিং নেই)
+   - ৩ টেবিল: বাকী কিস্তি · আদায় কিস্তি · আংশিক কিস্তি
+       · InstallmentActual = 0                  → বাকী
+       · InstallmentActual <  InstallmentAmount → আংশিক
+       · InstallmentActual >= InstallmentAmount → আদায়
+   - ফিল্টার: ষ্টাফ · সেন্টার কোড · মেম্বার কোড · তারিখ
+   - GitHub অথবা লোকাল (বিনা টোকেনে) স্টোরেজ
    ========================================================= */
 'use strict';
 
 /* ---------------- Utils ---------------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+const esc = (v) => String(v ?? '').replace(/[&<>\"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' }[c]
 ));
 const norm = (v) => String(v ?? '').trim().toLowerCase();
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -22,15 +26,14 @@ const num = (v) => {
   return isNaN(n) ? 0 : Math.round(n * 100) / 100;
 };
 const fmt = (n) => Number(n || 0).toLocaleString('bn-BD', { maximumFractionDigits: 2 });
-const todayISO = () => {
-  const d = new Date();
-  const p = (x) => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
-const fmtDate = (iso) => {
-  if (!iso) return '—';
-  const d = new Date(iso + 'T00:00:00');
-  return isNaN(d) ? iso : d.toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' });
+
+const toISODate = (v) => {
+  const s = toEn(String(v ?? '')).trim();
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; // dd/mm/yyyy (বাংলাদেশ)
+  return '';
 };
 
 let toastTimer = null;
@@ -40,18 +43,18 @@ function toast(msg, isErr = false) {
   t.classList.toggle('err', isErr);
   t.classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('hidden'), 2800);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 3200);
 }
 
 /* ---------------- Settings (localStorage) ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v3';
+const APP_VER = 'v4';
 const AUTH_ERR = /401|Bad credentials/i;
+
 const defaultSettings = () => ({
   mode: 'github', // 'github' | 'local' (লোকাল মোডে টোকেন লাগে না)
   token: '', owner: '', repo: '', branch: 'main',
-  membersPath: 'data/members.json',
-  collectionsPath: 'data/collections.json',
+  membersPath: 'data/installments.json',
   autoRefresh: true, refreshSec: 60,
 });
 let settings = { ...defaultSettings(), ...(JSON.parse(localStorage.getItem(SET_KEY) || '{}')) };
@@ -98,7 +101,11 @@ async function ghReadFile(path) {
 
 async function ghWriteFile(path, text, message) {
   if (isLocal()) {
-    localStorage.setItem(localKey(path), text);
+    try {
+      localStorage.setItem(localKey(path), text);
+    } catch (e) {
+      throw new Error('ব্রাউজার স্টোরেজ ভর্তি হয়ে গেছে — ফাইলটা সেভ হয়নি (তবে এখন দেখা যাবে)');
+    }
     return { content: { path, sha: 'local' } };
   }
   const url = `${API}/repos/${settings.owner}/${settings.repo}/contents/${ghPath(path)}`;
@@ -117,33 +124,6 @@ async function ghWriteFile(path, text, message) {
   return res.json();
 }
 
-/* ---------------- App state ---------------- */
-const state = {
-  members: [],          // [{id, code, name, center_code, center_name, kisti, savings, dps, phone}]
-  collections: [],      // [{id, date, time, member_code, member_name, center_code, center_name, kisti, savings, dps, total, paid, next_date}]
-  lastSync: null,
-  expanded: new Set(),  // expanded member ids
-  collapsed: new Set(), // collapsed table sections
-  page: 'dues',
-  csvData: null,        // uploaded CSV working copy
-};
-
-const loadDB = async (quiet = false) => {
-  const [m, c] = await Promise.all([
-    ghReadFile(settings.membersPath),
-    ghReadFile(settings.collectionsPath),
-  ]);
-  const members = m ? JSON.parse(m.text).members : [];
-  const collections = c ? JSON.parse(c.text).collections : [];
-  const changed =
-    JSON.stringify(state.members) !== JSON.stringify(members) ||
-    JSON.stringify(state.collections) !== JSON.stringify(collections);
-  state.members = members;
-  state.collections = collections;
-  state.lastSync = new Date();
-  if (changed && quiet) { renderAll(); toast('🔄 GitHub থেকে ডাটা আপডেট হয়েছে'); }
-};
-
 const persistFile = async (path, text, message) => {
   try {
     return await ghWriteFile(path, text, message);
@@ -159,11 +139,7 @@ const persistFile = async (path, text, message) => {
   }
 };
 
-const persistMembers = () =>
-  persistFile(settings.membersPath, JSON.stringify({ updated_at: new Date().toISOString(), members: state.members }, null, 2), 'members: CSV update');
-
-const persistCollections = (msg) =>
-  persistFile(settings.collectionsPath, JSON.stringify({ updated_at: new Date().toISOString(), collections: state.collections }, null, 2), msg || 'collection update');
+const dataPath = () => settings.membersPath || 'data/installments.json';
 
 /* ---------------- CSV parser ---------------- */
 function detectDelimiter(line) {
@@ -177,7 +153,7 @@ function detectDelimiter(line) {
 }
 
 function parseCSV(text, delimiter) {
-  text = text.replace(/^﻿/, '');
+  text = text.replace(/^\uFEFF/, '');
   const rows = [];
   let row = [], cur = '', inQ = false;
   for (let i = 0; i < text.length; i++) {
@@ -196,99 +172,245 @@ function parseCSV(text, delimiter) {
   return rows;
 }
 
-const FIELD_DEFS = [
-  { key: 'code', label: 'মেম্বার কোড', required: true, aliases: ['member code', 'member_code', 'mem code', 'memcode', 'code', 'id', 'সদস্য কোড', 'কোড', 'মেম্বার কোড', 'member id'] },
-  { key: 'name', label: 'মেম্বার নাম', required: true, aliases: ['member name', 'member_name', 'name', 'নাম', 'সদস্যের নাম', 'মেম্বার নাম'] },
-  { key: 'center_code', label: 'সেন্টার কোড', required: true, aliases: ['center code', 'centre code', 'center_code', 'centre_code', 'কেন্দ্র কোড', 'সেন্টার কোড', 'center', 'কেন্দ্র'] },
-  { key: 'center_name', label: 'সেন্টার নাম', required: false, aliases: ['center name', 'centre name', 'center_name', 'centre_name', 'কেন্দ্রের নাম', 'সেন্টারের নাম', 'কেন্দ্র নাম'] },
-  { key: 'kisti', label: 'কিস্তি (৳)', required: true, aliases: ['kisti', 'kisti amount', 'installment', 'installment amount', 'কিস্তি', 'কিস্তি টাকা', 'কিস্তি পরিমাণ', 'amount', 'টাকা'] },
-  { key: 'savings', label: 'সঞ্চয় (৳)', required: false, aliases: ['savings', 'সঞ্চয়', 'সঞ্চয় টাকা'] },
-  { key: 'dps', label: 'DPS (৳)', required: false, aliases: ['dps', 'ডিপিএস'] },
-  { key: 'phone', label: 'ফোন (ঐচ্ছিক)', required: false, aliases: ['phone', 'mobile', 'মোবাইল', 'মোবাইল নম্বর', 'ফোন', 'telephone'] },
-  { key: 'next_due', label: 'পরবর্তী তারিখ (ঐচ্ছিক)', required: false, aliases: ['next due date', 'due date', 'next_due', 'next_due_date', 'পরবর্তী তারিখ', 'পরবর্তী টাকা দেওয়ার তারিখ', 'due', 'date'] },
+/* ---------------- কলাম অটো-ডিটেক্ট (কোনো সিলেকশন নেই) ---------------- */
+function normHeader(h) {
+  return toEn(String(h ?? '')).toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function detectColumns(headers) {
+  const n = headers.map(normHeader);
+  const pick = (test) => {
+    let best = -1, bestScore = 0;
+    n.forEach((h, i) => {
+      const s = test(h) || 0;
+      if (s > bestScore) { bestScore = s; best = i; }
+    });
+    return bestScore >= 40 ? best : -1;
+  };
+  const has = (h, ...ws) => ws.every((w) => h.includes(w));
+
+  const actual = pick((h) =>
+    has(h, 'installment', 'actual') || has(h, 'instalment', 'actual') ? 100 :
+    has(h, 'actualinstallment') ? 95 :
+    h.includes('actual') ? 75 :
+    has(h, 'paid', 'amount') || has(h, 'received', 'amount') || has(h, 'collection', 'amount') ? 60 : 0);
+
+  const amount = pick((h) => {
+    if (h === n[actual]) return 0;
+    return (has(h, 'installment', 'amount') || has(h, 'instalment', 'amount')) && !h.includes('actual') ? 100 :
+      (has(h, 'installmentamount') && !h.includes('actual')) ? 95 :
+      has(h, 'due', 'amount') ? 70 :
+      (h.includes('installment') || h.includes('instalment')) && !h.includes('actual') ? 65 :
+      h === 'amount' || h === 'kisti' ? 55 :
+      has(h, 'total', 'amount') ? 45 : 0;
+  });
+
+  const staff = pick((h) =>
+    has(h, 'employee') ? 100 :
+    has(h, 'staff') ? 95 :
+    has(h, 'officer') ? 85 :
+    has(h, 'collector') ? 80 :
+    has(h, 'empcode') || has(h, 'empno') || has(h, 'empid') ? 75 : 0);
+
+  const centerCode = pick((h) =>
+    has(h, 'center', 'code') || has(h, 'centre', 'code') ? 100 :
+    has(h, 'center', 'id') || has(h, 'centre', 'id') || has(h, 'center', 'no') || has(h, 'centre', 'no') ? 90 :
+    h === 'center' || h === 'centre' || h === 'centercode' ? 60 : 0);
+
+  const centerName = pick((h) => (has(h, 'center', 'name') || has(h, 'centre', 'name') ? 100 : 0));
+
+  const memberCode = pick((h) =>
+    has(h, 'member', 'code') || has(h, 'member', 'no') || has(h, 'member', 'id') || has(h, 'member', 'number') ? 100 :
+    has(h, 'customer', 'code') || has(h, 'customer', 'no') || has(h, 'customer', 'id') ||
+    has(h, 'client', 'code') || has(h, 'client', 'id') || has(h, 'borrower') ? 90 :
+    has(h, 'memcode') || has(h, 'mcode') || has(h, 'custcode') || has(h, 'custid') ? 85 :
+    has(h, 'loanaccount') || has(h, 'accountno') || has(h, 'accountnumber') || has(h, 'acno') ||
+    has(h, 'loanid') || has(h, 'loanno') ? 80 :
+    h === 'code' || h === 'id' ? 55 : 0);
+
+  const memberName = pick((h) =>
+    has(h, 'member', 'name') || has(h, 'customer', 'name') || has(h, 'client', 'name') || has(h, 'borrower', 'name') ? 100 :
+    h.endsWith('name') && (h.includes('cust') || h.includes('mem') || h.includes('client')) ? 90 :
+    h === 'name' || h === 'membername' ? 55 :
+    (h.endsWith('name') && !h.includes('item') && !h.includes('product') &&
+     !h.includes('center') && !h.includes('centre') && !h.includes('staff') && !h.includes('emp')) ? 45 : 0);
+
+  const date = pick((h) =>
+    has(h, 'installment', 'date') || has(h, 'instalment', 'date') ? 100 :
+    has(h, 'due', 'date') ? 95 :
+    has(h, 'paid', 'date') || has(h, 'payment', 'date') ? 90 :
+    h.includes('date') ? 70 : 0);
+
+  return { actual, amount, staff, centerCode, centerName, memberCode, memberName, date };
+}
+
+const DETECT_LABELS = [
+  ['actual', 'আদায় (InstallmentActual)'],
+  ['amount', 'কিস্তি (InstallmentAmount)'],
+  ['staff', 'ষ্টাফ'],
+  ['centerCode', 'সেন্টার কোড'],
+  ['memberCode', 'মেম্বার কোড'],
+  ['memberName', 'মেম্বার নাম'],
+  ['date', 'তারিখ'],
+  ['centerName', 'সেন্টার নাম'],
 ];
 
-function autoMapHeaders(headers) {
-  const lower = headers.map((h) => norm(h.replace(/[_-]+/g, ' ')));
-  const map = {};
-  for (const def of FIELD_DEFS) {
-    let idx = -1;
-    for (let i = 0; i < lower.length; i++) {
-      const h = lower[i];
-      if (def.aliases.some((a) => h === a || (a.length > 3 && h.includes(a)))) { idx = i; break; }
-    }
-    map[def.key] = idx;
-  }
-  return map;
+/* ---------------- App state ---------------- */
+const state = {
+  headers: [],          // CSV হেডার
+  rows: [],             // [[cell, cell, ...], ...]
+  detect: {},           // { actual, amount, staff, ... } → কলাম ইনডেক্স
+  filters: { staff: '', center: '', member: '', date: '' },
+  csvData: null,        // আপলোডের সময়ের কাজচলা কপি
+  lastSync: null,
+};
+
+/* ---------------- ক্লাসিফিকেশন ---------------- */
+function rowStatus(r) {
+  const d = state.detect;
+  const actual = num(r[d.actual]);
+  const amount = d.amount >= 0 ? num(r[d.amount]) : 0;
+  if (actual <= 0) return 'due';
+  if (d.amount >= 0 && amount > 0 && actual < amount) return 'partial';
+  return 'paid';
 }
 
-/* CSV → ডাটাবেজ মার্জ */
-function applyCSVToDB(rows, headers, map, replaceAll) {
-  if (replaceAll) state.members = [];
-  const byCode = new Map(state.members.map((m) => [norm(m.code), m]));
-  let added = 0, updated = 0;
+const countByStatus = (rows) => {
+  const out = { due: 0, paid: 0, partial: 0 };
+  for (const r of rows) out[rowStatus(r)]++;
+  return out;
+};
 
+/* ---------------- লোড / সেভ ---------------- */
+const loadDB = async (quiet = false) => {
+  const f = await ghReadFile(dataPath());
+  let headers = [], rows = [];
+  if (f) {
+    try {
+      const j = JSON.parse(f.text);
+      if (Array.isArray(j.headers) && Array.isArray(j.rows)) {
+        headers = j.headers;
+        rows = j.rows.filter((r) => Array.isArray(r));
+      }
+    } catch { /* ভাঙা/অপরিচিত ফাইল — খালি দেখাও */ }
+  }
+  const changed = JSON.stringify(state.rows) !== JSON.stringify(rows);
+  state.headers = headers;
+  state.rows = rows;
+  state.detect = detectColumns(headers);
+  state.lastSync = new Date();
+  if (changed && quiet && rows.length) { renderAll(); toast('🔄 ডাটা আপডেট হয়েছে'); }
+};
+
+const persistRows = () =>
+  persistFile(dataPath(), JSON.stringify({ updated_at: new Date().toISOString(), headers: state.headers, rows: state.rows }), 'installments: CSV update');
+
+/* ---------------- ফিল্টার ---------------- */
+function filteredRows() {
+  const f = state.filters, d = state.detect;
+  return state.rows.filter((r) => {
+    if (f.staff && d.staff >= 0 && norm(r[d.staff]) !== norm(f.staff)) return false;
+    if (f.center && d.centerCode >= 0 && norm(r[d.centerCode]) !== norm(f.center)) return false;
+    if (f.member) {
+      const q = norm(f.member);
+      const code = d.memberCode >= 0 ? norm(r[d.memberCode]) : '';
+      const name = d.memberName >= 0 ? norm(r[d.memberName]) : '';
+      if (!code.includes(q) && !name.includes(q)) return false;
+    }
+    if (f.date && d.date >= 0) {
+      const cell = String(r[d.date] ?? '');
+      if (toISODate(cell) !== f.date && cell.trim() !== f.date) return false;
+    }
+    return true;
+  });
+}
+
+/* ---------------- রেন্ডার ---------------- */
+function tableColumns() {
+  const d = state.detect, cols = [], used = new Set();
+  const add = (idx, label) => {
+    if (idx >= 0 && !used.has(idx)) { cols.push({ idx, label }); used.add(idx); }
+  };
+  add(d.memberCode, 'মেম্বার কোড');
+  add(d.memberName, 'মেম্বার নাম');
+  add(d.centerCode, 'সেন্টার কোড');
+  add(d.centerName, 'সেন্টার নাম');
+  add(d.staff, 'ষ্টাফ');
+  add(d.date, 'তারিখ');
+  add(d.amount, 'কিস্তি (৳)');
+  add(d.actual, 'আদায় (৳)');
+  cols.push({ idx: -1, label: 'বাকী (৳)', virtual: 'bal' });
+  state.headers.forEach((h, i) => { if (!used.has(i)) cols.push({ idx: i, label: h }); });
+  return cols;
+}
+
+const RENDER_CAP = 500;
+
+function cellHTML(r, c) {
+  const d = state.detect;
+  if (c.virtual === 'bal') {
+    const amt = d.amount >= 0 ? num(r[d.amount]) : 0;
+    const act = num(r[d.actual]);
+    return `<td class="amt">${fmt(Math.max(0, amt - act))}</td>`;
+  }
+  const v = r[c.idx] ?? '';
+  if (c.idx === d.amount || c.idx === d.actual) return `<td class="amt">${fmt(num(v))}</td>`;
+  return `<td>${esc(v)}</td>`;
+}
+
+function renderSection(key, rows) {
+  const cols = tableColumns();
+  const d = state.detect;
+  const thead = $(`#table-${key} thead`);
+  const tbody = $(`#tbl-${key}`);
+  if (!thead || !tbody) return;
+
+  thead.innerHTML = `<tr>${cols.map((c) => {
+    const isAmt = c.virtual === 'bal' || c.idx === d.amount || c.idx === d.actual;
+    return `<th class="${isAmt ? 'amt' : ''}">${esc(c.label)}</th>`;
+  }).join('')}</tr>`;
+
+  const shown = rows.slice(0, RENDER_CAP);
+  tbody.innerHTML = shown.map((r) => `<tr>${cols.map((c) => cellHTML(r, c)).join('')}</tr>`).join('')
+    + (rows.length > RENDER_CAP
+      ? `<tr><td colspan="${cols.length}" style="text-align:center;color:var(--muted)">… আরও ${fmt(rows.length - RENDER_CAP)} সারি — ফিল্টার দিয়ে খুঁজুন</td></tr>`
+      : '');
+
+  $(`#count-${key}`).textContent = fmt(rows.length);
+  $(`#empty-${key}`).classList.toggle('hidden', rows.length > 0);
+
+  let sumAmt = 0, sumAct = 0, sumBal = 0;
   for (const r of rows) {
-    const code = (r[map.code] ?? '').toString().trim();
-    const name = (r[map.name] ?? '').toString().trim();
-    const centerCode = (r[map.center_code] ?? '').toString().trim();
-    if (!code || !name || !centerCode) continue;
-
-    const data = {
-      code,
-      name,
-      center_code: centerCode,
-      center_name: (map.center_name >= 0 ? r[map.center_name] : '')?.toString().trim() || centerCode,
-      kisti: num(r[map.kisti]),
-      savings: map.savings >= 0 ? num(r[map.savings]) : 0,
-      dps: map.dps >= 0 ? num(r[map.dps]) : 0,
-      phone: map.phone >= 0 ? (r[map.phone] ?? '').toString().trim() : '',
-      next_due: map.next_due >= 0 ? (r[map.next_due] ?? '').toString().trim() : '',
-    };
-
-    const existing = byCode.get(norm(code));
-    if (existing) {
-      Object.assign(existing, data);
-      updated++;
-    } else {
-      state.members.push({ id: uid(), ...data });
-      byCode.set(norm(code), state.members[state.members.length - 1]);
-      added++;
-    }
+    const amt = d.amount >= 0 ? num(r[d.amount]) : 0;
+    const act = num(r[d.actual]);
+    sumAmt += amt; sumAct += act; sumBal += Math.max(0, amt - act);
   }
-  return { added, updated, total: state.members.length };
+  $(`#sum-${key}`).innerHTML = `
+    <div class="totals">
+      <div class="total-box highlight"><span>মোট সংখ্যা</span><strong>${fmt(rows.length)}</strong></div>
+      <div class="total-box"><span>মোট কিস্তি</span><strong>৳ ${fmt(sumAmt)}</strong></div>
+      <div class="total-box"><span>মোট আদায়</span><strong>৳ ${fmt(sumAct)}</strong></div>
+      <div class="total-box"><span>মোট বাকী</span><strong>৳ ${fmt(sumBal)}</strong></div>
+    </div>`;
 }
 
-/* ---------------- Derived status ---------------- */
-const recordsFor = (code) => state.collections.filter((c) => norm(c.member_code) === norm(code));
+function renderTables() {
+  const rows = filteredRows();
+  const groups = { due: [], paid: [], partial: [] };
+  for (const r of rows) groups[rowStatus(r)].push(r);
 
-function latestRecord(m) {
-  const rs = recordsFor(m.code);
-  if (!rs.length) return null;
-  return rs.slice().sort((a, b) => (b.date + b.time + b.id).localeCompare(a.date + a.time + a.id))[0];
-}
-function todayRecord(m) {
-  const rs = recordsFor(m.code).filter((c) => c.date === todayISO());
-  if (!rs.length) return null;
-  return rs.slice().sort((a, b) => (b.time + b.id).localeCompare(a.time + a.id))[0];
-}
-const isPaidToday = (m) => {
-  const r = todayRecord(m);
-  return !!(r && r.paid);
-};
-const lastPaidDate = (m) => {
-  const rs = recordsFor(m.code).filter((c) => c.paid).sort((a, b) => b.date.localeCompare(a.date));
-  return rs.length ? rs[0].date : null;
-};
-const nextDueFor = (m) => {
-  const rs = recordsFor(m.code).filter((c) => !c.paid && c.next_date).sort((a, b) => b.date.localeCompare(a.date));
-  return rs.length ? rs[0].next_date : (m.next_due || '');
-};
+  renderSection('due', groups.due);
+  renderSection('paid', groups.paid);
+  renderSection('partial', groups.partial);
 
-/* ---------------- Rendering ---------------- */
-function renderAll() {
-  renderHeader();
-  renderPage();
+  $('#chip-due strong').textContent = fmt(groups.due.length);
+  $('#chip-paid strong').textContent = fmt(groups.paid.length);
+  $('#chip-partial strong').textContent = fmt(groups.partial.length);
+
+  const hasData = state.rows.length > 0;
+  $('#no-data').classList.toggle('hidden', hasData);
+  $$('[data-sec]').forEach((el) => el.classList.toggle('hidden', !hasData));
+  $('#summary-chips').classList.toggle('hidden', !hasData);
 }
 
 function renderHeader() {
@@ -300,251 +422,78 @@ function renderHeader() {
     : 'সিঙ্ক হয়নি';
 }
 
-function renderPage() {
-  const isToday = state.page === 'today';
-  $('#page-dues').classList.toggle('hidden', isToday);
-  $('#page-today').classList.toggle('hidden', !isToday);
-  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === state.page));
-  if (!isToday) renderDuesPage(); else renderTodayPage();
+function renderAll() {
+  renderHeader();
+  renderTables();
 }
 
-function memberRowHTML(m, paidToday) {
-  const exp = state.expanded.has(m.id);
-  const lastPaid = lastPaidDate(m);
-  const nextDue = nextDueFor(m);
-  const detail = `
-    <div class="expand-cell">
-      <div class="expand-item"><span>মেম্বার কোড</span><strong>${esc(m.code)}</strong></div>
-      <div class="expand-item"><span>সেন্টার</span><strong>${esc(m.center_code)} — ${esc(m.center_name)}</strong></div>
-      <div class="expand-item"><span>মাসিক কিস্তি</span><strong>৳ ${fmt(m.kisti)}</strong></div>
-      <div class="expand-item"><span>সঞ্চয়</span><strong>৳ ${fmt(m.savings)}</strong></div>
-      <div class="expand-item"><span>DPS</span><strong>৳ ${fmt(m.dps)}</strong></div>
-      <div class="expand-item"><span>গত আদায়</span><strong>${lastPaid ? fmtDate(lastPaid) : '—'}</strong></div>
-      <div class="expand-item"><span>পরবর্তী তারিখ</span><strong>${nextDue ? fmtDate(nextDue) : '—'}</strong></div>
-      <div class="expand-item"><span>ফোন</span><strong>${esc(m.phone || '—')}</strong></div>
-    </div>`;
-  return `
-    <tr class="member-row ${exp ? 'expanded' : ''}" data-id="${m.id}">
-      <td class="col-exp"><button class="exp-btn" data-expand="${m.id}">▼</button></td>
-      <td class="code-cell">${esc(m.code)}</td>
-      <td class="name-cell">${esc(m.name)}${paidToday ? '<span class="paid-tag">আজ দিয়েছে</span>' : ''}${nextDue ? `<span class="due-tag">পরবর্তী: ${fmtDate(nextDue)}</span>` : ''}</td>
-      <td>${esc(m.center_code)}</td>
-      <td>${esc(m.center_name)}</td>
-      <td class="amt">৳ ${fmt(m.kisti)}</td>
-    </tr>
-    <tr class="expand-row ${exp ? '' : 'hidden'}" data-expand-row="${m.id}">
-      <td colspan="6">${exp ? detail : ''}</td>
-    </tr>`;
+function populateFilters() {
+  const d = state.detect;
+  const fillSelect = (itemSel, selEl, idx, allLabel) => {
+    const item = $(itemSel);
+    if (idx < 0) { item.classList.add('hidden'); return; }
+    item.classList.remove('hidden');
+    const vals = [...new Set(state.rows.map((r) => String(r[idx] ?? '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'bn'));
+    const cur = selEl.value;
+    selEl.innerHTML = `<option value="">${allLabel}</option>` +
+      vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    if ([...selEl.options].some((o) => o.value === cur)) selEl.value = cur;
+  };
+  fillSelect('#fi-staff', $('#f-staff'), d.staff, 'সব ষ্টাফ');
+  fillSelect('#fi-center', $('#f-center'), d.centerCode, 'সব সেন্টার');
+  $('#fi-member').classList.toggle('hidden', d.memberCode < 0 && d.memberName < 0);
+  $('#fi-date').classList.toggle('hidden', d.date < 0);
 }
 
-function renderDuesPage() {
-  const q = norm($('#search').value);
-  const cf = norm($('#center-filter').value);
-  const match = (m) =>
-    (!q || norm(m.code).includes(q) || norm(m.name).includes(q) || norm(m.center_name).includes(q) || norm(m.center_code).includes(q)) &&
-    (!cf || norm(m.center_code) === cf || norm(m.center_name) === cf);
-
-  const remaining = state.members.filter((m) => !isPaidToday(m) && match(m))
-    .sort((a, b) => a.center_code.localeCompare(b.center_code) || a.code.localeCompare(b.code));
-  const paid = state.members.filter((m) => isPaidToday(m) && match(m))
-    .sort((a, b) => a.center_code.localeCompare(b.center_code) || a.code.localeCompare(b.code));
-
-  $('#count-remaining').textContent = fmt(remaining.length);
-  $('#count-paid').textContent = fmt(paid.length);
-  $('#tbl-remaining').innerHTML = remaining.map((m) => memberRowHTML(m, false)).join('');
-  $('#tbl-paid').innerHTML = paid.map((m) => memberRowHTML(m, true)).join('');
-  $('#empty-remaining').classList.toggle('hidden', remaining.length > 0);
-  $('#empty-paid').classList.toggle('hidden', paid.length > 0);
-
-  // center filter
-  const centers = [...new Map(state.members.map((m) => [norm(m.center_code), m])).values()]
-    .sort((a, b) => a.center_code.localeCompare(b.center_code));
-  const sel = $('#center-filter');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">সব কেন্দ্র</option>' +
-    centers.map((m) => `<option value="${esc(m.center_code)}">${esc(m.center_code)} — ${esc(m.center_name)}</option>`).join('');
-  sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '';
-
-  // collapsed sections
-  $('#sec-remaining').classList.toggle('collapsed', state.collapsed.has('sec-remaining'));
-  $('#sec-paid').classList.toggle('collapsed', state.collapsed.has('sec-paid'));
-}
-
-function renderTodayPage() {
-  const mode = $('#today-filter').value;
-  let recs = state.collections.filter((c) => c.paid);
-  if (mode === 'today') recs = recs.filter((c) => c.date === todayISO());
-  recs = recs.slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
-
-  $('#today-title').textContent = mode === 'today'
-    ? `আজকের আদায় — ${fmtDate(todayISO())}`
-    : 'সব আদায়ের রেকর্ড';
-
-  $('#tbl-today').innerHTML = recs.map((c) => `
-    <tr>
-      <td class="code-cell">${esc(c.member_code)}</td>
-      <td class="name-cell">${esc(c.member_name)}${mode === 'all' ? `<span class="center-sub">${fmtDate(c.date)}</span>` : ''}</td>
-      <td>${esc(c.center_code)}</td>
-      <td class="amt">৳ ${fmt(c.kisti)}</td>
-      <td class="amt">৳ ${fmt(c.savings)}</td>
-      <td class="amt">৳ ${fmt(c.dps)}</td>
-      <td class="amt"><strong>৳ ${fmt(c.total)}</strong></td>
-      <td class="col-del"><button class="del-btn" data-del="${c.id}" title="মুছুন">🗑</button></td>
-    </tr>`).join('');
-  $('#empty-today').classList.toggle('hidden', recs.length > 0);
-
-  const sum = (k) => recs.reduce((a, c) => a + num(c[k]), 0);
-  $('#tot-kisti').textContent = '৳ ' + fmt(sum('kisti'));
-  $('#tot-savings').textContent = '৳ ' + fmt(sum('savings'));
-  $('#tot-dps').textContent = '৳ ' + fmt(sum('dps'));
-  $('#tot-count').textContent = fmt(new Set(recs.map((c) => norm(c.member_code))).size);
-}
-
-/* ---------------- Member popup (আদায়) ---------------- */
-let currentMember = null;
-let payMode = true; // true = দেওয়া হয়েছে
-
-function openMemberModal(m) {
-  currentMember = m;
-  payMode = true;
-  $('#mm-name').textContent = `${m.name} (${m.code})`;
-  const lastPaid = lastPaidDate(m);
-  const nextDue = nextDueFor(m);
-  $('#mm-details').innerHTML = `
-    <div class="detail-item"><span>মেম্বার কোড</span><strong>${esc(m.code)}</strong></div>
-    <div class="detail-item"><span>সেন্টার কোড</span><strong>${esc(m.center_code)}</strong></div>
-    <div class="detail-item full"><span>সেন্টার নাম</span><strong>${esc(m.center_name)}</strong></div>
-    <div class="detail-item"><span>কিস্তি (৳)</span><strong>${fmt(m.kisti)}</strong></div>
-    <div class="detail-item"><span>সঞ্চয় (৳)</span><strong>${fmt(m.savings)}</strong></div>
-    <div class="detail-item"><span>DPS (৳)</span><strong>${fmt(m.dps)}</strong></div>
-    <div class="detail-item"><span>গত আদায়</span><strong>${lastPaid ? fmtDate(lastPaid) : '—'}</strong></div>
-    <div class="detail-item"><span>পরবর্তী তারিখ</span><strong>${nextDue ? fmtDate(nextDue) : '—'}</strong></div>
-    <div class="detail-item"><span>ফোন</span><strong>${esc(m.phone || '—')}</strong></div>`;
-
-  // history
-  const hist = recordsFor(m.code).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time)).slice(0, 5);
-  $('#mm-history-box').classList.toggle('hidden', !hist.length);
-  $('#mm-history').innerHTML = hist.map((c) => `
-    <div class="history-item ${c.paid ? '' : 'unpaid'}">
-      <span>${fmtDate(c.date)}</span>
-      <span class="h-amt">${c.paid ? '৳ ' + fmt(c.total) : 'বাকি — পরবর্তী: ' + fmtDate(c.next_date)}</span>
-    </div>`).join('');
-
-  // defaults
-  $('#in-kisti').value = m.kisti || 0;
-  $('#in-savings').value = m.savings || 0;
-  $('#in-dps').value = m.dps || 0;
-  $('#in-next-date').value = m.next_due || '';
-  $('#collect-error').classList.add('hidden');
-  setPayMode(true);
-  $('#member-modal').classList.remove('hidden');
-}
-
-function setPayMode(paid) {
-  payMode = paid;
-  $('#pay-yes').classList.toggle('active', paid);
-  $('#pay-no').classList.toggle('active', !paid);
-  $('#amount-fields').classList.toggle('hidden', !paid);
-  $('#next-date-wrap').classList.toggle('hidden', paid);
-  updateTotal();
-}
-
-function updateTotal() {
-  const t = num($('#in-kisti').value) + num($('#in-savings').value) + num($('#in-dps').value);
-  $('#in-total').textContent = '৳ ' + fmt(t);
-}
-
-async function saveCollection() {
-  if (!currentMember) return;
-  const m = currentMember;
-  const errEl = $('#collect-error');
-  errEl.classList.add('hidden');
-
-  const now = new Date();
-  const p = (x) => String(x).padStart(2, '0');
-  const time = `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
-
-  if (payMode) {
-    const kisti = num($('#in-kisti').value), savings = num($('#in-savings').value), dps = num($('#in-dps').value);
-    if (kisti + savings + dps <= 0) {
-      errEl.textContent = 'কমপক্ষে একটি ফিল্ডে টাকা দিন।';
-      errEl.classList.remove('hidden');
-      return;
-    }
-    state.collections.push({
-      id: uid(), date: todayISO(), time,
-      member_code: m.code, member_name: m.name,
-      center_code: m.center_code, center_name: m.center_name,
-      kisti, savings, dps,
-      total: kisti + savings + dps,
-      paid: true, next_date: '',
-    });
-  } else {
-    const nd = $('#in-next-date').value;
-    if (!nd) {
-      errEl.textContent = 'টাকা না দিলে "পরবর্তী টাকা দেওয়ার তারিখ" দিতে হবে।';
-      errEl.classList.remove('hidden');
-      return;
-    }
-    state.collections.push({
-      id: uid(), date: todayISO(), time,
-      member_code: m.code, member_name: m.name,
-      center_code: m.center_code, center_name: m.center_name,
-      kisti: 0, savings: 0, dps: 0, total: 0,
-      paid: false, next_date: nd,
-    });
-  }
-
-  try {
-    await persistCollections(`collection: ${m.code} ${payMode ? 'paid' : 'deferred'}`);
-    $('#member-modal').classList.add('hidden');
-    renderAll();
-    toast(payMode ? '✅ আদায় সেভ হয়েছে' : '🕒 পরবর্তী তারিখ সেভ হয়েছে');
-  } catch (e) {
-    state.collections.pop();
-    errEl.textContent = 'সেভ করতে পারলাম না: ' + e.message;
-    errEl.classList.remove('hidden');
-  }
-}
-
-/* ---------------- CSV upload flow ---------------- */
+/* ---------------- CSV আপলোড ফ্লো ---------------- */
 function handleCSVFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const text = String(reader.result);
       const delim = detectDelimiter(text.split(/\r?\n/)[0] || '');
-      const rows = parseCSV(text, delim);
-      if (rows.length < 2) throw new Error('CSV-তে হেডার ও অন্তত ১ সারি দরকার।');
-      const headers = rows[0].map((h) => h.trim());
-      const data = rows.slice(1);
-      state.csvData = { headers, data, map: autoMapHeaders(headers) };
-      renderCSVMapping();
+      const parsed = parseCSV(text, delim);
+      if (parsed.length < 2) throw new Error('CSV-তে হেডার ও অন্তত ১ সারি দরকার।');
+      const headers = parsed[0].map((h) => h.trim());
+      const rows = parsed.slice(1).map((r) => headers.map((_, i) => (r[i] ?? '').toString().trim()));
+      const detect = detectColumns(headers);
+      state.csvData = { headers, rows, detect };
+
+      $('#csv-detect').innerHTML = `<b>✅ অটো-শনানো কলাম:</b><br>` +
+        DETECT_LABELS.map(([k, label]) => {
+          const idx = detect[k];
+          return idx >= 0
+            ? `${label}: <b>${esc(headers[idx])}</b>`
+            : `${label}: <span class="miss">পাওয়া যায়নি</span>`;
+        }).join('<br>');
+
       $('#csv-preview-wrap').classList.remove('hidden');
-      $('#btn-apply-csv').disabled = false;
-      $('#csv-error').classList.add('hidden');
+      $('#csv-preview thead').innerHTML = `<tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>`;
+      $('#csv-preview tbody').innerHTML = rows.slice(0, 5)
+        .map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('');
+
+      const errEl = $('#csv-error');
+      if (detect.actual < 0) {
+        errEl.textContent = '⚠️ CSV-তে "InstallmentActual" কলাম খুঁজে পাইনি। ফাইলটা ঠিক কিনা দেখুন — সমস্যা হলে ফাইলটা আমাকে পাঠান।';
+        errEl.classList.remove('hidden');
+        $('#btn-apply-csv').disabled = true;
+      } else {
+        if (detect.amount < 0) {
+          errEl.textContent = '⚠️ "InstallmentAmount" কলাম পাইনি — সব আদায়কে সম্পূর্ণ আদায় ধরা হবে (আংশিক চিনতে পারবে না)।';
+          errEl.classList.remove('hidden');
+        } else {
+          errEl.classList.add('hidden');
+        }
+        $('#btn-apply-csv').disabled = false;
+      }
     } catch (e) {
       showCSVError(e.message);
+      $('#btn-apply-csv').disabled = true;
+      $('#csv-preview-wrap').classList.remove('hidden');
     }
   };
   reader.readAsText(file, 'UTF-8');
-}
-
-function renderCSVMapping() {
-  const { headers, data, map } = state.csvData;
-  $('#mapping-grid').innerHTML = FIELD_DEFS.map((def) => `
-    <div class="map-item">
-      <label>${def.label}${def.required ? ' *' : ''}</label>
-      <select data-mapfield="${def.key}">
-        <option value="-1">— বাদ দিন —</option>
-        ${headers.map((h, i) => `<option value="${i}" ${map[def.key] === i ? 'selected' : ''}>${esc(h)}</option>`).join('')}
-      </select>
-    </div>`).join('');
-
-  // preview
-  const preview = data.slice(0, 5);
-  $('#csv-preview thead').innerHTML = `<tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>`;
-  $('#csv-preview tbody').innerHTML = preview.map((r) => `<tr>${headers.map((_, i) => `<td>${esc(r[i] ?? '')}</td>`).join('')}</tr>`).join('');
 }
 
 function showCSVError(msg) {
@@ -554,43 +503,34 @@ function showCSVError(msg) {
 }
 
 async function applyCSV() {
-  const { data, map } = state.csvData;
-  const required = ['code', 'name', 'center_code', 'kisti'];
-  for (const k of required) {
-    if (map[k] < 0) { showCSVError('দয়া করে বাধ্যতামূলক ফিল্ড ম্যাপ করুন: ' + k); return; }
-  }
-  const replaceAll = $('#csv-replace').checked;
+  const { headers, rows, detect } = state.csvData;
   const btn = $('#btn-apply-csv');
   btn.disabled = true;
-  btn.textContent = '⏳ সেভ হচ্ছে…';
+  btn.textContent = '⏳ তৈরি হচ্ছে...';
+
+  state.headers = headers;
+  state.rows = rows;
+  state.detect = detect;
+  state.filters = { staff: '', center: '', member: '', date: '' };
+  $('#f-staff').value = ''; $('#f-center').value = ''; $('#f-member').value = ''; $('#f-date').value = '';
+
+  populateFilters();
+  renderAll();
+  $('#csv-modal').classList.add('hidden');
+
+  const c = countByStatus(rows);
+  toast(`✅ ${fmt(rows.length)} সারি — বাকী ${fmt(c.due)} · আদায় ${fmt(c.paid)} · আংশিক ${fmt(c.partial)}`);
+
+  btn.textContent = '📊 টেবিল দেখুন';
+  btn.disabled = false;
   try {
-    const res = applyCSVToDB(data, null, map, replaceAll);
-    await persistMembers();
-    $('#csv-modal').classList.add('hidden');
-    $('#csv-preview-wrap').classList.add('hidden');
-    $('#btn-apply-csv').disabled = false;
-    $('#btn-apply-csv').textContent = '💾 ডাটাবেজ আপডেট করুন';
-    renderAll();
-    toast(`✅ ডাটাবেজ আপডেট: ${fmt(res.added)} নতুন, ${fmt(res.updated)} আপডেট, মোট ${fmt(res.total)} সদস্য`);
+    await persistRows();
   } catch (e) {
-    showCSVError('সেভ করতে পারলাম না: ' + e.message);
-    btn.disabled = false;
-    btn.textContent = '💾 ডাটাবেজ আপডেট করুন';
+    toast('সেভ সমস্যা: ' + e.message, true);
   }
 }
 
-/* ---------------- Auto-sync ---------------- */
-let syncTimer = null;
-function restartSyncTimer() {
-  clearInterval(syncTimer);
-  if (settings.autoRefresh && settings.refreshSec >= 10) {
-    syncTimer = setInterval(async () => {
-      try { await loadDB(true); } catch { /* নেটওয়ার্ক সমস্যা — চুপচাপ */ }
-    }, settings.refreshSec * 1000);
-  }
-}
-
-/* ---------------- Setup screen ---------------- */
+/* ---------------- সেটআপ স্ক্রিন ---------------- */
 function showSetup() {
   $('#setup-screen').classList.remove('hidden');
   $('#app').classList.add('hidden');
@@ -600,7 +540,6 @@ function showSetup() {
   $('#set-branch').value = settings.branch;
   $('#set-refresh').value = settings.refreshSec;
   $('#set-members-path').value = settings.membersPath;
-  $('#set-collections-path').value = settings.collectionsPath;
   $('#set-autorefresh').checked = settings.autoRefresh;
 }
 
@@ -611,9 +550,18 @@ function readSetupForm() {
   settings.repo = $('#set-repo').value.trim();
   settings.branch = $('#set-branch').value.trim() || 'main';
   settings.refreshSec = Math.max(10, num($('#set-refresh').value) || 60);
-  settings.membersPath = $('#set-members-path').value.trim() || 'data/members.json';
-  settings.collectionsPath = $('#set-collections-path').value.trim() || 'data/collections.json';
+  settings.membersPath = $('#set-members-path').value.trim() || 'data/installments.json';
   settings.autoRefresh = $('#set-autorefresh').checked;
+}
+
+let syncTimer = null;
+function restartSyncTimer() {
+  clearInterval(syncTimer);
+  if (settings.autoRefresh && !isLocal()) {
+    syncTimer = setInterval(async () => {
+      try { await loadDB(true); } catch { /* নেটওয়ার্ক সমস্যা — চুপচাপ */ }
+    }, settings.refreshSec * 1000);
+  }
 }
 
 async function startApp() {
@@ -637,84 +585,65 @@ async function startApp() {
     }
   }
   $('#sync-dot').classList.add('ok');
+  populateFilters();
   renderAll();
   restartSyncTimer();
 }
 
 /* ---------------- Events ---------------- */
 function bindEvents() {
-  // tabs
-  $$('.tab').forEach((t) => t.addEventListener('click', () => {
-    state.page = t.dataset.page;
-    renderPage();
-  }));
-
-  // header buttons
+  // হেডার বাটন
   $('#btn-refresh').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.classList.add('spin');
-    try { await loadDB(); $('#sync-dot').classList.add('ok'); renderAll(); toast('🔄 রিফ্রেশ সম্পন্ন'); }
+    try { await loadDB(); $('#sync-dot').classList.add('ok'); populateFilters(); renderAll(); toast('🔄 রিফ্রেশ সম্পন্ন'); }
     catch (err) { toast('রিফ্রেশ ব্যর্থ: ' + err.message, true); }
     btn.classList.remove('spin');
   });
-  $('#btn-upload').addEventListener('click', () => $('#csv-modal').classList.remove('hidden'));
+  const openUpload = () => {
+    $('#csv-modal').classList.remove('hidden');
+    $('#csv-preview-wrap').classList.add('hidden');
+    $('#csv-error').classList.add('hidden');
+    $('#btn-apply-csv').disabled = true;
+    $('#csv-file').value = '';
+  };
+  $('#btn-upload').addEventListener('click', openUpload);
+  $('#btn-upload-2').addEventListener('click', openUpload);
   $('#btn-settings').addEventListener('click', showSetup);
 
-  // search & filters
-  $('#search').addEventListener('input', renderDuesPage);
-  $('#center-filter').addEventListener('change', renderDuesPage);
-  $('#today-filter').addEventListener('change', renderTodayPage);
-
-  // collapsible sections
-  $$('.table-head').forEach((h) => h.addEventListener('click', () => {
-    const id = h.dataset.collapse;
-    state.collapsed.has(id) ? state.collapsed.delete(id) : state.collapsed.add(id);
-    $('#' + id).classList.toggle('collapsed');
-  }));
-
-  // table row interactions (event delegation)
-  document.addEventListener('click', (e) => {
-    const expBtn = e.target.closest('[data-expand]');
-    if (expBtn) {
-      e.stopPropagation();
-      const id = expBtn.dataset.expand;
-      state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id);
-      const row = expBtn.closest('tr');
-      row.classList.toggle('expanded');
-      const next = row.nextElementSibling;
-      if (next && next.dataset.expandRow === id) next.classList.toggle('hidden');
-      return;
-    }
-    const mRow = e.target.closest('tr.member-row');
-    if (mRow) {
-      const m = state.members.find((x) => x.id === mRow.dataset.id);
-      if (m) openMemberModal(m);
-      return;
-    }
-    const delBtn = e.target.closest('[data-del]');
-    if (delBtn) {
-      const id = delBtn.dataset.del;
-      if (confirm('এই আদায়ের রেকর্ড মুছবেন?')) {
-        state.collections = state.collections.filter((c) => c.id !== id);
-        persistCollections('collection: delete').then(() => { renderAll(); toast('🗑 রেকর্ড মুছে ফেলা হয়েছে'); })
-          .catch((err) => toast('মুছতে সমস্যা: ' + err.message, true));
-      }
-    }
+  // ফিল্টার
+  $('#f-staff').addEventListener('change', (e) => { state.filters.staff = e.target.value; renderTables(); });
+  $('#f-center').addEventListener('change', (e) => { state.filters.center = e.target.value; renderTables(); });
+  $('#f-member').addEventListener('input', (e) => { state.filters.member = e.target.value.trim(); renderTables(); });
+  $('#f-date').addEventListener('change', (e) => { state.filters.date = e.target.value; renderTables(); });
+  $('#btn-clear-filters').addEventListener('click', () => {
+    state.filters = { staff: '', center: '', member: '', date: '' };
+    $('#f-staff').value = ''; $('#f-center').value = ''; $('#f-member').value = ''; $('#f-date').value = '';
+    renderTables();
+    toast('✖ ফিল্টার মুছে ফেলা হয়েছে');
   });
 
-  // modals close
+  // চিপস → সেকশনে স্ক্রল
+  [['chip-due', 'sec-due'], ['chip-paid', 'sec-paid'], ['chip-partial', 'sec-partial']].forEach(([chip, sec]) => {
+    $('#' + chip).addEventListener('click', () => {
+      const el = $('#' + sec);
+      el.classList.remove('collapsed');
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  // কোল্যাপস
+  $$('.table-head').forEach((h) => h.addEventListener('click', () => {
+    $('#' + h.dataset.collapse).classList.toggle('collapsed');
+  }));
+
+  // মডাল বন্ধ
   $$('[data-close]').forEach((b) => b.addEventListener('click', () => $('#' + b.dataset.close).classList.add('hidden')));
   $$('.modal-overlay').forEach((ov) => ov.addEventListener('click', (e) => {
     if (e.target === ov) ov.classList.add('hidden');
   }));
 
-  // payment modal
-  $('#pay-yes').addEventListener('click', () => setPayMode(true));
-  $('#pay-no').addEventListener('click', () => setPayMode(false));
-  ['#in-kisti', '#in-savings', '#in-dps'].forEach((id) => $(id).addEventListener('input', updateTotal));
-  $('#btn-save-collection').addEventListener('click', saveCollection);
-
-  // CSV modal
+  // CSV
   $('#csv-file').addEventListener('change', (e) => { if (e.target.files[0]) handleCSVFile(e.target.files[0]); });
   $('#drop-zone').addEventListener('click', () => $('#csv-file').click());
   $('#drop-zone').addEventListener('dragover', (e) => { e.preventDefault(); $('#drop-zone').classList.add('dragover'); });
@@ -725,13 +654,9 @@ function bindEvents() {
     const f = e.dataTransfer.files[0];
     if (f) handleCSVFile(f);
   });
-  $('#mapping-grid').addEventListener('change', (e) => {
-    const sel = e.target.closest('[data-mapfield]');
-    if (sel) state.csvData.map[sel.dataset.mapfield] = parseInt(sel.value, 10);
-  });
   $('#btn-apply-csv').addEventListener('click', applyCSV);
 
-  // setup
+  // সেটআপ
   $('#btn-local-mode').addEventListener('click', () => {
     settings.mode = 'local';
     saveSettings();
@@ -743,7 +668,7 @@ function bindEvents() {
     const errEl = $('#setup-error');
     errEl.classList.add('hidden');
     if (!settings.token || !settings.owner || !settings.repo) {
-      errEl.textContent = '⚠️ Token, Owner ও RepName লিখুন।';
+      errEl.textContent = '⚠️ Token, Owner ও Repo Name লিখুন।';
       errEl.classList.remove('hidden');
       return;
     }
@@ -765,7 +690,7 @@ function bindEvents() {
     const errEl = $('#setup-error');
     errEl.classList.add('hidden');
     if (!settings.token || !settings.owner || !settings.repo) {
-      errEl.textContent = '⚠️ Token, Owner ও RepName লিখুন।';
+      errEl.textContent = '⚠️ Token, Owner ও Repo Name লিখুন।';
       errEl.classList.remove('hidden');
       return;
     }
@@ -791,5 +716,5 @@ if (settings.mode === 'github' && settings.token && settings.owner && settings.r
   settings.mode = 'local';
   saveSettings();
   startApp();
-  if (firstTime) toast('📱 লোকাল মোডে চালু হয়েছে — টোকেন লাগেনি, এখনই ব্যবহার করুন!');
+  if (firstTime) toast('📱 লোকাল মোডে চালু হয়েছে — এখনই CSV আপলোড করে শুরু করুন!');
 }
