@@ -1,8 +1,6 @@
 name: Deploy site to GitHub Pages
 
 on:
-  push:
-    branches: [arena/0db533bb-collection]
   workflow_dispatch:
 
 permissions:
