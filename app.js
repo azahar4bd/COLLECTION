@@ -46,6 +46,7 @@ function toast(msg, isErr = false) {
 /* ---------------- Settings (localStorage) ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
 const defaultSettings = () => ({
+  mode: 'github', // 'github' | 'local' (লোকাল মোডে টোকেন লাগে না)
   token: '', owner: '', repo: '', branch: 'main',
   membersPath: 'data/members.json',
   collectionsPath: 'data/collections.json',
@@ -53,6 +54,10 @@ const defaultSettings = () => ({
 });
 let settings = { ...defaultSettings(), ...(JSON.parse(localStorage.getItem(SET_KEY) || '{}')) };
 const saveSettings = () => localStorage.setItem(SET_KEY, JSON.stringify(settings));
+
+/* ---------------- Local mode (বিনা টোকেনে) ---------------- */
+const isLocal = () => settings.mode === 'local';
+const localKey = (p) => 'collectionManager.localDB.v1.' + p;
 
 /* ---------------- GitHub API ---------------- */
 const API = 'https://api.github.com';
@@ -76,6 +81,10 @@ const b64decode = (b64) => {
 const ghPath = (p) => p.split('/').map(encodeURIComponent).join('/');
 
 async function ghReadFile(path) {
+  if (isLocal()) {
+    const text = localStorage.getItem(localKey(path));
+    return text === null ? null : { sha: 'local', text };
+  }
   const url = `${API}/repos/${settings.owner}/${settings.repo}/contents/${ghPath(path)}?ref=${encodeURIComponent(settings.branch)}`;
   const res = await fetch(url, { headers: ghHeaders() });
   if (res.status === 404) return null;
@@ -86,6 +95,10 @@ async function ghReadFile(path) {
 }
 
 async function ghWriteFile(path, text, message) {
+  if (isLocal()) {
+    localStorage.setItem(localKey(path), text);
+    return { content: { path, sha: 'local' } };
+  }
   const url = `${API}/repos/${settings.owner}/${settings.repo}/contents/${ghPath(path)}`;
   let sha = null;
   try { const cur = await ghReadFile(path); if (cur) sha = cur.sha; } catch { /* নতুন ফাইল */ }
@@ -262,7 +275,9 @@ function renderAll() {
 }
 
 function renderHeader() {
-  $('#repo-badge').textContent = `${settings.owner}/${settings.repo} · ${settings.branch}`;
+  $('#repo-badge').textContent = isLocal()
+    ? '📱 লোকাল মোড · এই ব্রাউজারে সেভ হচ্ছে'
+    : `${settings.owner}/${settings.repo} · ${settings.branch}`;
   $('#sync-status').textContent = state.lastSync
     ? `সিঙ্ক হয়েছে ${state.lastSync.toLocaleTimeString('bn-BD')}`
     : 'সিঙ্ক হয়নি';
@@ -573,6 +588,7 @@ function showSetup() {
 }
 
 function readSetupForm() {
+  settings.mode = 'github';
   settings.token = $('#set-token').value.trim();
   settings.owner = $('#set-owner').value.trim();
   settings.repo = $('#set-repo').value.trim();
@@ -691,6 +707,12 @@ function bindEvents() {
   $('#btn-apply-csv').addEventListener('click', applyCSV);
 
   // setup
+  $('#btn-local-mode').addEventListener('click', () => {
+    settings.mode = 'local';
+    saveSettings();
+    startApp();
+    toast('📱 লোকাল মোড চালু — ডাটা এই ব্রাউজারে সেভ হবে');
+  });
   $('#btn-test-conn').addEventListener('click', async () => {
     readSetupForm();
     const errEl = $('#setup-error');
@@ -736,7 +758,7 @@ function bindEvents() {
 
 /* ---------------- Init ---------------- */
 bindEvents();
-if (settings.token && settings.owner && settings.repo) {
+if (settings.mode === 'local' || (settings.token && settings.owner && settings.repo)) {
   startApp();
 } else {
   showSetup();
