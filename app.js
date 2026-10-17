@@ -48,7 +48,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings (localStorage) ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v4';
+const APP_VER = 'v4.1';
 const AUTH_ERR = /401|Bad credentials/i;
 
 const defaultSettings = () => ({
@@ -190,9 +190,9 @@ function detectColumns(headers) {
   const has = (h, ...ws) => ws.every((w) => h.includes(w));
 
   const actual = pick((h) =>
-    has(h, 'installment', 'actual') || has(h, 'instalment', 'actual') ? 100 :
-    has(h, 'actualinstallment') ? 95 :
-    h.includes('actual') ? 75 :
+    h === 'installmentactual' || h === 'actualinstallment' ? 120 :
+    (has(h, 'installment', 'actual') || has(h, 'instalment', 'actual')) && !h.includes('date') ? 100 :
+    h.includes('actual') && !h.includes('date') ? 75 :
     has(h, 'paid', 'amount') || has(h, 'received', 'amount') || has(h, 'collection', 'amount') ? 60 : 0);
 
   const amount = pick((h) => {
@@ -236,18 +236,23 @@ function detectColumns(headers) {
      !h.includes('center') && !h.includes('centre') && !h.includes('staff') && !h.includes('emp')) ? 45 : 0);
 
   const date = pick((h) =>
+    has(h, 'date', 'actual') || has(h, 'actual', 'date') ? 110 :
     has(h, 'installment', 'date') || has(h, 'instalment', 'date') ? 100 :
     has(h, 'due', 'date') ? 95 :
     has(h, 'paid', 'date') || has(h, 'payment', 'date') ? 90 :
     h.includes('date') ? 70 : 0);
 
-  return { actual, amount, staff, centerCode, centerName, memberCode, memberName, date };
+  const staffName = pick((h) =>
+    has(h, 'emp', 'name') || has(h, 'employee', 'name') || has(h, 'staff', 'name') ? 100 : 0);
+
+  return { actual, amount, staff, staffName, centerCode, centerName, memberCode, memberName, date };
 }
 
 const DETECT_LABELS = [
   ['actual', 'আদায় (InstallmentActual)'],
   ['amount', 'কিস্তি (InstallmentAmount)'],
-  ['staff', 'ষ্টাফ'],
+  ['staff', 'ষ্টাফ কোড'],
+  ['staffName', 'ষ্টাফ নাম'],
   ['centerCode', 'সেন্টার কোড'],
   ['memberCode', 'মেম্বার কোড'],
   ['memberName', 'মেম্বার নাম'],
@@ -336,6 +341,7 @@ function tableColumns() {
   add(d.centerCode, 'সেন্টার কোড');
   add(d.centerName, 'সেন্টার নাম');
   add(d.staff, 'ষ্টাফ');
+  add(d.staffName, 'ষ্টাফ নাম');
   add(d.date, 'তারিখ');
   add(d.amount, 'কিস্তি (৳)');
   add(d.actual, 'আদায় (৳)');
@@ -429,7 +435,7 @@ function renderAll() {
 
 function populateFilters() {
   const d = state.detect;
-  const fillSelect = (itemSel, selEl, idx, allLabel) => {
+  const fillSelect = (itemSel, selEl, idx, allLabel, labeler) => {
     const item = $(itemSel);
     if (idx < 0) { item.classList.add('hidden'); return; }
     item.classList.remove('hidden');
@@ -437,10 +443,22 @@ function populateFilters() {
       .sort((a, b) => a.localeCompare(b, 'bn'));
     const cur = selEl.value;
     selEl.innerHTML = `<option value="">${allLabel}</option>` +
-      vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+      vals.map((v) => `<option value="${esc(v)}">${esc(labeler ? labeler(v) : v)}</option>`).join('');
     if ([...selEl.options].some((o) => o.value === cur)) selEl.value = cur;
   };
-  fillSelect('#fi-staff', $('#f-staff'), d.staff, 'সব ষ্টাফ');
+
+  // ষ্টাফ ফিল্টার: "কোড — নাম" দেখানো হবে
+  let staffNames = null;
+  if (d.staff >= 0 && d.staffName >= 0) {
+    staffNames = new Map();
+    for (const r of state.rows) {
+      const c = String(r[d.staff] ?? '').trim();
+      const n = String(r[d.staffName] ?? '').trim();
+      if (c && n && !staffNames.has(c)) staffNames.set(c, n);
+    }
+  }
+  fillSelect('#fi-staff', $('#f-staff'), d.staff, 'সব ষ্টাফ',
+    (v) => (staffNames && staffNames.get(v) ? `${v} — ${staffNames.get(v)}` : v));
   fillSelect('#fi-center', $('#f-center'), d.centerCode, 'সব সেন্টার');
   $('#fi-member').classList.toggle('hidden', d.memberCode < 0 && d.memberName < 0);
   $('#fi-date').classList.toggle('hidden', d.date < 0);
