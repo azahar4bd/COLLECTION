@@ -45,6 +45,8 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings (localStorage) ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
+const APP_VER = 'v3';
+const AUTH_ERR = /401|Bad credentials/i;
 const defaultSettings = () => ({
   mode: 'github', // 'github' | 'local' (লোকাল মোডে টোকেন লাগে না)
   token: '', owner: '', repo: '', branch: 'main',
@@ -142,11 +144,26 @@ const loadDB = async (quiet = false) => {
   if (changed && quiet) { renderAll(); toast('🔄 GitHub থেকে ডাটা আপডেট হয়েছে'); }
 };
 
+const persistFile = async (path, text, message) => {
+  try {
+    return await ghWriteFile(path, text, message);
+  } catch (e) {
+    if (!isLocal() && AUTH_ERR.test(e.message)) {
+      settings.mode = 'local';
+      saveSettings();
+      toast('⚠️ GitHub টোকেন কাজ করছে না — লোকাল মোডে সেভ হলো');
+      renderHeader();
+      return await ghWriteFile(path, text, message);
+    }
+    throw e;
+  }
+};
+
 const persistMembers = () =>
-  ghWriteFile(settings.membersPath, JSON.stringify({ updated_at: new Date().toISOString(), members: state.members }, null, 2), 'members: CSV update');
+  persistFile(settings.membersPath, JSON.stringify({ updated_at: new Date().toISOString(), members: state.members }, null, 2), 'members: CSV update');
 
 const persistCollections = (msg) =>
-  ghWriteFile(settings.collectionsPath, JSON.stringify({ updated_at: new Date().toISOString(), collections: state.collections }, null, 2), msg || 'collection update');
+  persistFile(settings.collectionsPath, JSON.stringify({ updated_at: new Date().toISOString(), collections: state.collections }, null, 2), msg || 'collection update');
 
 /* ---------------- CSV parser ---------------- */
 function detectDelimiter(line) {
@@ -276,8 +293,8 @@ function renderAll() {
 
 function renderHeader() {
   $('#repo-badge').textContent = isLocal()
-    ? '📱 লোকাল মোড · এই ব্রাউজারে সেভ হচ্ছে'
-    : `${settings.owner}/${settings.repo} · ${settings.branch}`;
+    ? `📱 লোকাল মোড · এই ব্রাউজারে সেভ হচ্ছে · ${APP_VER}`
+    : `${settings.owner}/${settings.repo} · ${settings.branch} · ${APP_VER}`;
   $('#sync-status').textContent = state.lastSync
     ? `সিঙ্ক হয়েছে ${state.lastSync.toLocaleTimeString('bn-BD')}`
     : 'সিঙ্ক হয়নি';
@@ -605,15 +622,23 @@ async function startApp() {
   $('#sync-dot').className = 'dot';
   try {
     await loadDB();
-    $('#sync-dot').classList.add('ok');
-    renderAll();
-    restartSyncTimer();
   } catch (e) {
-    $('#sync-status').textContent = 'সিঙ্ক এরর: ' + e.message;
-    $('#sync-dot').classList.add('err');
-    toast('ডাটা লোড করতে সমস্যা: ' + e.message, true);
-    renderAll();
+    if (!isLocal() && AUTH_ERR.test(e.message)) {
+      settings.mode = 'local';
+      saveSettings();
+      toast('⚠️ GitHub টোকেন কাজ করছে না — লোকাল মোডে চালানো হচ্ছে');
+      try { await loadDB(); } catch { /* লোকালে সমস্যা হয় না */ }
+    } else {
+      $('#sync-status').textContent = 'সিঙ্ক এরর: ' + e.message;
+      $('#sync-dot').classList.add('err');
+      toast('ডাটা লোড করতে সমস্যা: ' + e.message, true);
+      renderAll();
+      return;
+    }
   }
+  $('#sync-dot').classList.add('ok');
+  renderAll();
+  restartSyncTimer();
 }
 
 /* ---------------- Events ---------------- */
@@ -758,8 +783,13 @@ function bindEvents() {
 
 /* ---------------- Init ---------------- */
 bindEvents();
-if (settings.mode === 'local' || (settings.mode === 'github' && settings.token && settings.owner && settings.repo)) {
+if (settings.mode === 'github' && settings.token && settings.owner && settings.repo) {
   startApp();
 } else {
-  showSetup();
+  // টোকেন/সেটআপ ছাড়াই সরাসরি লোকাল মোডে চালু (⚙️ সেটিংস থেকে পরে GitHub যোগ করা যায়)
+  const firstTime = settings.mode !== 'local';
+  settings.mode = 'local';
+  saveSettings();
+  startApp();
+  if (firstTime) toast('📱 লোকাল মোডে চালু হয়েছে — টোকেন লাগেনি, এখনই ব্যবহার করুন!');
 }
