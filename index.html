@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>কালেকশন ম্যানেজার — GitHub ভিত্তিক</title>
+<title>কালেকশন ম্যানেজার — কিস্তি রিপোর্ট</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
   <div class="setup-card">
     <div class="setup-logo">💰</div>
     <h1>কালেকশন ম্যানেজার</h1>
-    <p class="setup-sub">CSV থেকে ডাটাবেজ · GitHub-এ সেভ · Netlify-এ চালু</p>
+    <p class="setup-sub">CSV থেকে বাকী · আদায় · আংশিক কিস্তির টেবিল</p>
 
     <div class="field">
       <label>GitHub Personal Access Token (PAT) <span class="req">*</span></label>
@@ -46,8 +46,7 @@
     </div>
     <div class="field">
       <label>ডাটা ফাইলের পাথ (ডিফল্ট ঠিক আছে)</label>
-      <input type="text" id="set-members-path" value="data/members.json" autocomplete="off">
-      <input type="text" id="set-collections-path" value="data/collections.json" autocomplete="off" style="margin-top:6px">
+      <input type="text" id="set-members-path" value="data/installments.json" autocomplete="off">
     </div>
     <label class="check-row">
       <input type="checkbox" id="set-autorefresh" checked>
@@ -58,6 +57,11 @@
     <div class="setup-actions">
       <button class="btn ghost" id="btn-test-conn">🔗 সংযোগ পরীক্ষা</button>
       <button class="btn primary" id="btn-save-settings">💾 সংযোগ সেভ করুন</button>
+    </div>
+
+    <div class="local-wrap">
+      <button class="btn local" id="btn-local-mode">📱 লোকাল মোড চালু করুন — টোকেন লাগবে না</button>
+      <small>টোকেন/সেটআপ ছাড়াই এখনই ব্যবহার করুন। ডাটা শুধু এই ব্রাউজারে সেভ থাকবে — পরে GitHub সিঙ্ক চাইলে উপরে টোকেন দিয়ে "সংযোগ সেভ করুন" চাপুন।</small>
     </div>
   </div>
 </div>
@@ -84,119 +88,96 @@
       <span id="sync-status">সিঙ্ক হয়নি</span>
       <span id="sync-dot" class="dot"></span>
     </div>
-
-    <nav class="tabs">
-      <button class="tab active" data-page="dues">📋 বাকী / আদায় তালিকা</button>
-      <button class="tab" data-page="today">✅ আজকের আদায়</button>
-    </nav>
   </header>
 
   <main>
-    <!-- ============ পেজ ১ : বাকী / আদায় তালিকা ============ -->
-    <section id="page-dues">
-      <div class="toolbar">
-        <input type="search" id="search" class="search" placeholder="🔍 কোড / নাম / কেন্দ্র খুঁজুন…">
-        <select id="center-filter" class="select"><option value="">সব কেন্দ্র</option></select>
-      </div>
-
-      <!-- কিস্তি বাকী তালিকা -->
-      <div class="table-card" id="sec-remaining">
-        <button class="table-head" data-collapse="sec-remaining">
-          <span class="th-title">🕒 কিস্তি বাকী তালিকা <span class="badge warn" id="count-remaining">০</span></span>
-          <span class="chevron">▼</span>
-        </button>
-        <div class="table-body">
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th class="col-exp"></th>
-                  <th>মেম্বার কোড</th>
-                  <th>মেম্বার নাম</th>
-                  <th>সেন্টার কোড</th>
-                  <th>সেন্টার নাম</th>
-                  <th class="amt">কিস্তি (৳)</th>
-                </tr>
-              </thead>
-              <tbody id="tbl-remaining"></tbody>
-            </table>
-          </div>
-          <div class="empty hidden" id="empty-remaining">✅ বাকি কিস্তি নেই — সবাই আদায় হয়েছে!</div>
+    <!-- ============ ফিল্টার ============ -->
+    <div class="filter-bar">
+      <div class="filter-row">
+        <div class="filter-item" id="fi-staff">
+          <label>👤 ষ্টাফ</label>
+          <select id="f-staff" class="select"><option value="">সব ষ্টাফ</option></select>
+        </div>
+        <div class="filter-item" id="fi-center">
+          <label>🏢 সেন্টার কোড</label>
+          <select id="f-center" class="select"><option value="">সব সেন্টার</option></select>
         </div>
       </div>
-
-      <!-- কিস্তি পেইড তালিকা -->
-      <div class="table-card" id="sec-paid">
-        <button class="table-head" data-collapse="sec-paid">
-          <span class="th-title">✅ কিস্তি পেইড তালিকা <span class="badge ok" id="count-paid">০</span></span>
-          <span class="chevron">▼</span>
-        </button>
-        <div class="table-body">
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th class="col-exp"></th>
-                  <th>মেম্বার কোড</th>
-                  <th>মেম্বার নাম</th>
-                  <th>সেন্টার কোড</th>
-                  <th>সেন্টার নাম</th>
-                  <th class="amt">কিস্তি (৳)</th>
-                </tr>
-              </thead>
-              <tbody id="tbl-paid"></tbody>
-            </table>
-          </div>
-          <div class="empty hidden" id="empty-paid">এখনো কেউ কিস্তি দেননি। উপরের বাকী তালিকা থেকে আদায় করুন।</div>
+      <div class="filter-row">
+        <div class="filter-item" id="fi-member">
+          <label>🔍 মেম্বার কোড / নাম</label>
+          <input type="search" id="f-member" class="search" placeholder="লিখুন…">
+        </div>
+        <div class="filter-item" id="fi-date">
+          <label>📅 তারিখ</label>
+          <input type="date" id="f-date">
         </div>
       </div>
-    </section>
-
-    <!-- ============ পেজ ২ : আজকের আদায় ============ -->
-    <section id="page-today" class="hidden">
-      <div class="toolbar">
-        <h2 id="today-title">আজকের আদায়</h2>
-        <select id="today-filter" class="select">
-          <option value="today">আজকের</option>
-          <option value="all">সব রেকর্ড</option>
-        </select>
+      <div class="filter-row">
+        <button class="btn ghost" id="btn-clear-filters" style="flex:1">✖ ফিল্টার মুছুন</button>
       </div>
+      <div class="chips hidden" id="summary-chips">
+        <button class="chip due" id="chip-due">🕒 বাকী <strong>০</strong></button>
+        <button class="chip paid" id="chip-paid">✅ আদায় <strong>০</strong></button>
+        <button class="chip partial" id="chip-partial">⚠️ আংশিক <strong>০</strong></button>
+      </div>
+    </div>
 
-      <div class="table-card">
-        <div class="table-body">
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>মেম্বার কোড</th>
-                  <th>মেম্বার নাম</th>
-                  <th>সেন্টার কোড</th>
-                  <th class="amt">কিস্তি (৳)</th>
-                  <th class="amt">সঞ্চয় (৳)</th>
-                  <th class="amt">DPS (৳)</th>
-                  <th class="amt">মোট (৳)</th>
-                  <th class="col-del"></th>
-                </tr>
-              </thead>
-              <tbody id="tbl-today"></tbody>
-            </table>
-          </div>
-          <div class="empty hidden" id="empty-today">আজ এখনো কোনো আদায় হয়নি।</div>
+    <!-- ============ ডাটা না থাকলে ============ -->
+    <div class="no-data hidden" id="no-data">
+      <div class="big">📤</div>
+      <p>কোনো ডাটা নেই।<br>আপনার CSV ফাইল আপলোড করলেই<br>বাকী · আদায় · আংশিক — ৩টা টেবিল তৈরি হবে।</p>
+      <button class="btn primary big-up" id="btn-upload-2">📤 CSV আপলোড করুন</button>
+    </div>
+
+    <!-- ============ ১. বাকী কিস্তি ============ -->
+    <div class="table-card hidden" data-sec id="sec-due">
+      <button class="table-head" data-collapse="sec-due">
+        <span class="th-title">🕒 বাকী কিস্তি <span class="badge warn" id="count-due">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="table-wrap">
+          <table id="table-due"><thead></thead><tbody id="tbl-due"></tbody></table>
         </div>
-        <tfoot class="today-footer">
-          <div class="totals">
-            <div class="total-box"><span>মোট কিস্তি</span><strong id="tot-kisti">০</strong></div>
-            <div class="total-box"><span>মোট সঞ্চয়</span><strong id="tot-savings">০</strong></div>
-            <div class="total-box"><span>মোট DPS</span><strong id="tot-dps">০</strong></div>
-            <div class="total-box highlight"><span>মোট সংখ্যা</span><strong id="tot-count">০</strong></div>
-          </div>
-        </tfoot>
+        <div class="empty hidden" id="empty-due">এই ফিল্টারে কোনো বাকী কিস্তি নেই।</div>
+        <div class="tsum" id="sum-due"></div>
       </div>
-    </section>
+    </div>
+
+    <!-- ============ ২. আদায় কিস্তি ============ -->
+    <div class="table-card hidden" data-sec id="sec-paid">
+      <button class="table-head" data-collapse="sec-paid">
+        <span class="th-title">✅ আদায় কিস্তি <span class="badge ok" id="count-paid">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="table-wrap">
+          <table id="table-paid"><thead></thead><tbody id="tbl-paid"></tbody></table>
+        </div>
+        <div class="empty hidden" id="empty-paid">এই ফিল্টারে কোনো আদায় কিস্তি নেই।</div>
+        <div class="tsum" id="sum-paid"></div>
+      </div>
+    </div>
+
+    <!-- ============ ৩. আংশিক কিস্তি ============ -->
+    <div class="table-card hidden" data-sec id="sec-partial">
+      <button class="table-head" data-collapse="sec-partial">
+        <span class="th-title">⚠️ আংশিক কিস্তি <span class="badge part" id="count-partial">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="table-wrap">
+          <table id="table-partial"><thead></thead><tbody id="tbl-partial"></tbody></table>
+        </div>
+        <div class="empty hidden" id="empty-partial">এই ফিল্টারে কোনো আংশিক কিস্তি নেই।</div>
+        <div class="tsum" id="sum-partial"></div>
+      </div>
+    </div>
   </main>
 </div>
 
-<!-- ===================== CSV আপলোড / ম্যাপিং মোডাল ===================== -->
+<!-- ===================== CSV আপলোড মডাল ===================== -->
 <div id="csv-modal" class="modal-overlay hidden">
   <div class="modal">
     <div class="modal-head">
@@ -204,7 +185,7 @@
       <button class="close-btn" data-close="csv-modal">✕</button>
     </div>
     <div class="modal-body">
-      <p class="hint">নতুন CSV আপলোড করলে ডাটাবেজ আপডেট হবে (মেম্বার কোড অনুযায়ী মিলিয়ে)।</p>
+      <p class="hint">CSV ফাইল দিলেই কলাম নিজে থেকেই চিনে নেবে — কোনো সিলেকশন/ম্যাপিং লাগবে না।</p>
       <label class="drop-zone" id="drop-zone">
         <input type="file" id="csv-file" accept=".csv,text/csv" hidden>
         <span>📁 CSV ফাইল নির্বাচন করুন বা এখানে ছুড়ে দিন</span>
@@ -212,83 +193,22 @@
       </label>
 
       <div id="csv-preview-wrap" class="hidden">
-        <h4>কলাম ম্যাপিং করুন <small>(CSV হেডার → অ্যাপ ফিল্ড)</small></h4>
-        <div class="mapping-grid" id="mapping-grid"></div>
+        <div id="csv-detect" class="detect-box"></div>
         <h4>প্রিভিউ (প্রথম ৫ সারি)</h4>
         <div class="table-wrap small">
           <table id="csv-preview"><thead></thead><tbody></tbody></table>
         </div>
-        <label class="check-row danger-zone">
-          <input type="checkbox" id="csv-replace">
-          পুরনো ডাটাবেজ মুছে শুধু এই CSV দিয়ে তৈরি করুন (Replace all)
-        </label>
         <div id="csv-error" class="setup-error hidden"></div>
       </div>
     </div>
     <div class="modal-foot">
       <button class="btn ghost" data-close="csv-modal">বাতিল</button>
-      <button class="btn primary" id="btn-apply-csv" disabled>💾 ডাটাবেজ আপডেট করুন</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===================== মেম্বার ডিটেইল / আদায় পopup ===================== -->
-<div id="member-modal" class="modal-overlay hidden">
-  <div class="modal sheet">
-    <div class="modal-head">
-      <h3 id="mm-name">—</h3>
-      <button class="close-btn" data-close="member-modal">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="detail-grid" id="mm-details"></div>
-
-      <div class="history-box hidden" id="mm-history-box">
-        <h4>সম্প্রতির আদায়</h4>
-        <div id="mm-history"></div>
-      </div>
-
-      <div class="collect-section">
-        <h4>💵 টাকা আদায়</h4>
-        <div class="pay-toggle">
-          <button class="pay-opt active" id="pay-yes" data-paid="true">✔ টাকা দেওয়া হয়েছে</button>
-          <button class="pay-opt" id="pay-no" data-paid="false">✖ টাকা দেওয়া হয়নি</button>
-        </div>
-
-        <div id="amount-fields">
-          <div class="field-row3">
-            <div class="field">
-              <label>কিস্তি (৳)</label>
-              <input type="number" id="in-kisti" inputmode="decimal" min="0" step="0.01">
-            </div>
-            <div class="field">
-              <label>সঞ্চয় (৳)</label>
-              <input type="number" id="in-savings" inputmode="decimal" min="0" step="0.01">
-            </div>
-            <div class="field">
-              <label>DPS (৳)</label>
-              <input type="number" id="in-dps" inputmode="decimal" min="0" step="0.01">
-            </div>
-          </div>
-          <div class="total-line">মোট আদায়: <strong id="in-total">৳ ০</strong></div>
-        </div>
-
-        <div class="field next-date-field hidden" id="next-date-wrap">
-          <label>পরবর্তী টাকা দেওয়ার তারিখ <span class="req">*</span></label>
-          <input type="date" id="in-next-date">
-        </div>
-
-        <div id="collect-error" class="setup-error hidden"></div>
-      </div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn ghost" data-close="member-modal">বন্ধ</button>
-      <button class="btn primary" id="btn-save-collection">💾 আদায় সেভ করুন</button>
+      <button class="btn primary" id="btn-apply-csv" disabled>📊 টেবিল দেখুন</button>
     </div>
   </div>
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<input type="file" id="hidden-csv-input" accept=".csv,text/csv" hidden>
 
 <script src="app.js"></script>
 </body>

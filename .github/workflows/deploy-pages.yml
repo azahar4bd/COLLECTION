@@ -1,0 +1,63 @@
+name: Deploy site to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  statuses: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare site files
+        run: |
+          mkdir dist
+          cp index.html styles.css app.js dist/
+          ls -la dist
+
+      - name: Enable Pages via API (with diagnostics)
+        id: enable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CODE=$(curl -s -o /tmp/resp.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages" \
+            -d '{"build_type":"workflow"}')
+          BODY=$(tr -d '\n' < /tmp/resp.json | head -c 90)
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=pending -f context=pages-diag \
+            -f description="enable HTTP $CODE $BODY" >/dev/null 2>&1 || true
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Mark success
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state=success -f context=pages-diag \
+            -f description="deployed ${{ steps.deployment.outputs.page_url }}" >/dev/null 2>&1 || true
