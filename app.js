@@ -346,8 +346,7 @@ function tableColumns() {
   add(d.amount, 'কিস্তি (৳)');
   add(d.actual, 'আদায় (৳)');
   cols.push({ idx: -1, label: 'বাকী (৳)', virtual: 'bal' });
-  state.headers.forEach((h, i) => { if (!used.has(i)) cols.push({ idx: i, label: h }); });
-  return cols;
+  return cols; // শুধু দরকারি কলাম — বাকি অতিরিক্ত কলাম দেখানো হয় না
 }
 
 const RENDER_CAP = 500;
