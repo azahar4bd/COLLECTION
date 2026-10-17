@@ -758,7 +758,7 @@ function bindEvents() {
 
 /* ---------------- Init ---------------- */
 bindEvents();
-if (settings.mode === 'local' || (settings.token && settings.owner && settings.repo)) {
+if (settings.mode === 'local' || (settings.mode === 'github' && settings.token && settings.owner && settings.repo)) {
   startApp();
 } else {
   showSetup();
