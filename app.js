@@ -48,7 +48,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings (localStorage) ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v4.1';
+const APP_VER = 'v4.3';
 const AUTH_ERR = /401|Bad credentials/i;
 
 const defaultSettings = () => ({
@@ -313,8 +313,9 @@ const persistRows = () =>
 /* ---------------- ফিল্টার ---------------- */
 function filteredRows() {
   const f = state.filters, d = state.detect;
+  const staffIdx = d.staffName >= 0 ? d.staffName : d.staff;
   return state.rows.filter((r) => {
-    if (f.staff && d.staff >= 0 && norm(r[d.staff]) !== norm(f.staff)) return false;
+    if (f.staff && staffIdx >= 0 && norm(r[staffIdx]) !== norm(f.staff)) return false;
     if (f.center && d.centerCode >= 0 && norm(r[d.centerCode]) !== norm(f.center)) return false;
     if (f.member) {
       const q = norm(f.member);
@@ -340,8 +341,8 @@ function tableColumns() {
   add(d.memberName, 'মেম্বার নাম');
   add(d.centerCode, 'সেন্টার কোড');
   add(d.centerName, 'সেন্টার নাম');
-  add(d.staff, 'ষ্টাফ');
-  add(d.staffName, 'ষ্টাফ নাম');
+  if (d.staffName >= 0) add(d.staffName, 'ষ্টাফ নাম');
+  else add(d.staff, 'ষ্টাফ');
   add(d.date, 'তারিখ');
   add(d.amount, 'কিস্তি (৳)');
   add(d.actual, 'আদায় (৳)');
@@ -446,18 +447,8 @@ function populateFilters() {
     if ([...selEl.options].some((o) => o.value === cur)) selEl.value = cur;
   };
 
-  // ষ্টাফ ফিল্টার: "কোড — নাম" দেখানো হবে
-  let staffNames = null;
-  if (d.staff >= 0 && d.staffName >= 0) {
-    staffNames = new Map();
-    for (const r of state.rows) {
-      const c = String(r[d.staff] ?? '').trim();
-      const n = String(r[d.staffName] ?? '').trim();
-      if (c && n && !staffNames.has(c)) staffNames.set(c, n);
-    }
-  }
-  fillSelect('#fi-staff', $('#f-staff'), d.staff, 'সব ষ্টাফ',
-    (v) => (staffNames && staffNames.get(v) ? `${v} — ${staffNames.get(v)}` : v));
+  // ষ্টাফ ফিল্টার: নাম দিয়ে (না থাকলে কোড দিয়ে)
+  fillSelect('#fi-staff', $('#f-staff'), d.staffName >= 0 ? d.staffName : d.staff, 'সব ষ্টাফ');
   fillSelect('#fi-center', $('#f-center'), d.centerCode, 'সব সেন্টার');
   $('#fi-member').classList.toggle('hidden', d.memberCode < 0 && d.memberName < 0);
   $('#fi-date').classList.toggle('hidden', d.date < 0);
