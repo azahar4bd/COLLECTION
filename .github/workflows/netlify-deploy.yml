@@ -1,0 +1,100 @@
+name: Deploy to Netlify (GitHub থেকে, Netlify বিল্ড ছাড়া)
+
+# কেন এই পথ: Netlify-র নিজের বিল্ড ক্রেডিটে আটকে গেলেও এখান থেকে ডিপ্লয় হয়।
+# বিল্ড চলে GitHub-এর সার্ভারে, ডিপ্লয় যায় netlify-cli দিয়ে — Netlify build credit খরচ হয় না।
+#
+# একবারের সেটআপ:
+#   Settings → Secrets and variables → Actions → New repository secret
+#     NETLIFY_AUTH_TOKEN = Netlify → User settings → Applications → Personal access tokens
+#     NETLIFY_SITE_ID    = Site configuration → Site information → Site ID
+#     NETLIFY_SITE_URL   = (ঐচ্ছিক) https://your-site.netlify.app — ভার্সন যাচাইয়ের জন্য
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: netlify-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: রিপো থেকে সবচেয়ে নতুন zip বেছে dist/ বানানো
+        run: |
+          set -e
+          ls -1 COLLECTION-neon-*.zip >/dev/null 2>&1 || { echo "❌ রিপোতে COLLECTION-neon-*.zip নেই — zip ফাইলটা আপলোড করুন"; exit 1; }
+          ZIP=$(ls -1 COLLECTION-neon-*.zip | sort -V | tail -1)
+          echo "Deploying $ZIP"
+          echo "ZIP_NAME=$ZIP" >> "$GITHUB_ENV"
+          rm -rf dist && mkdir -p dist
+          unzip -o "$ZIP" -d dist
+          # টেস্ট কোড, CSV, ডকুমেন্টেশন — ওয়েবসাইটে দরকার নেই
+          rm -rf dist/test-*.cjs dist/test-fixtures dist/sql dist/sandbox-server.mjs \
+                 dist/.github dist/README.md dist/MOBILE-DEPLOY.md dist/netlify-repo-root.toml \
+                 dist/*.csv dist/preview-data.json dist/COLLECTION-neon-*.zip
+          ls -la dist
+
+      - name: যাচাই — index.html ও function জায়গামতো আছে
+        working-directory: dist
+        run: |
+          set -e
+          test -f index.html || { echo "❌ dist/index.html নেই"; exit 1; }
+          test -f app.js || { echo "❌ dist/app.js নেই"; exit 1; }
+          test -f shared/csv-rules.js || { echo "❌ dist/shared/csv-rules.js নেই"; exit 1; }
+          test -f netlify/functions/data.js || { echo "❌ dist/netlify/functions/data.js নেই"; exit 1; }
+          grep -q "APP_VER" app.js || { echo "❌ app.js-এ APP_VER নেই"; exit 1; }
+          echo "✅ জিপ ঠিক আছে: $(grep -o "APP_VER = '[^']*'" app.js | head -1)"
+
+      - name: ফাংশনের ডিপেন্ডেন্সি
+        working-directory: dist
+        run: npm install --omit=dev --no-package-lock --no-audit --no-fund
+
+      - name: Netlify-তে ডিপ্লয় (production)
+        working-directory: dist
+        env:
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "❌ আগে দুটি secret বসাতে হবে:"
+            echo "GitHub রিপো → Settings → Secrets and variables → Actions → New repository secret"
+            echo "  NETLIFY_AUTH_TOKEN = (Netlify → User settings → Applications → Personal access tokens)"
+            echo "  NETLIFY_SITE_ID    = (Netlify → Site configuration → Site information → Site ID)"
+            exit 1
+          fi
+          npx --yes netlify-cli@17 deploy \
+            --prod \
+            --dir=. \
+            --functions=netlify/functions \
+            --site "$NETLIFY_SITE_ID" \
+            --auth "$NETLIFY_AUTH_TOKEN" \
+            --message "GitHub Actions deploy (${{ github.sha }}) $ZIP_NAME"
+
+      - name: যাচাই — লাইভ সাইটে নতুন ভার্সন উঠেছে কি না
+        continue-on-error: true
+        if: secrets.NETLIFY_SITE_URL != ''
+        env:
+          SITE_URL: ${{ secrets.NETLIFY_SITE_URL }}
+        run: |
+          set -e
+          VER=$(echo "$ZIP_NAME" | sed -E 's/.*-(v[0-9.]+)\.zip/\1/')
+          echo "প্রত্যাশিত ভার্সন: $VER"
+          for i in 1 2 3 4 5 6; do
+            sleep 10
+            GOT=$(curl -fsS "$SITE_URL/app.js" | grep -o "APP_VER = '[^']*'" | head -1 || true)
+            echo "চেষ্টা $i → $GOT"
+            if echo "$GOT" | grep -q "$VER"; then echo "✅ লাইভে $VER উঠেছে"; exit 0; fi
+          done
+          echo "⚠️ ৬০ সেকেন্ডে $VER দেখা যায়নি — Netlify ড্যাশবোর্ডে Deploys লগ দেখুন"
