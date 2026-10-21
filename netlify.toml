@@ -1,13 +1,28 @@
 [build]
   publish = "dist"
   functions = "dist/netlify/functions"
-  command = "ZIP=$(ls -1 COLLECTION-neon-*.zip 2>/dev/null | sort -V | tail -1); if [ -z \"$ZIP\" ]; then echo 'NO ZIP'; exit 1; fi; echo \"Deploying $ZIP\"; rm -rf dist; mkdir -p dist; if command -v unzip >/dev/null 2>&1; then unzip -o \"$ZIP\" -d dist; else python3 -c \"import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall('dist')\" \"$ZIP\"; fi; cd dist && npm install --omit=dev --no-package-lock --no-audit --no-fund"
+  command = "ZIP=$(ls -1 COLLECTION-neon-*.zip 2>/dev/null | sort -V | tail -1); if [ -z \"$ZIP\" ]; then echo 'NO ZIP'; exit 1; fi; echo \"Deploying $ZIP\"; rm -rf dist; mkdir -p dist; if command -v unzip >/dev/null 2>&1; then unzip -o \"$ZIP\" -d dist; else python3 -c \"import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall('dist')\" \"$ZIP\"; fi; rm -rf dist/test-*.cjs dist/test-fixtures dist/sql dist/sandbox-server.mjs dist/.github dist/README.md dist/MOBILE-DEPLOY.md dist/netlify-repo-root.toml dist/*.csv dist/preview-data.json; cd dist && npm install --omit=dev --no-package-lock --no-audit --no-fund"
 
 [build.environment]
   NODE_VERSION = "20"
 
 [functions]
   node_bundler = "esbuild"
+
+[[headers]]
+  for = "/app.js"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/styles.css"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
 
 [[redirects]]
   from = "/api/data"
