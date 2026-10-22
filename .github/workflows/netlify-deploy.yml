@@ -84,11 +84,16 @@ jobs:
 
       - name: যাচাই — লাইভ সাইটে নতুন ভার্সন উঠেছে কি না
         continue-on-error: true
-        if: secrets.NETLIFY_SITE_URL != ''
         env:
           SITE_URL: ${{ secrets.NETLIFY_SITE_URL }}
         run: |
           set -e
+          # GitHub Actions-এর if:-এ secrets context সরাসরি ব্যবহার করা যায় না।
+          # তাই ঐচ্ছিক URL না থাকলে এই যাচাই ধাপটি এখান থেকে সফলভাবে শেষ করি।
+          if [ -z "$SITE_URL" ]; then
+            echo "ℹ️ NETLIFY_SITE_URL নেই — লাইভ ভার্সন যাচাই এড়িয়ে যাওয়া হলো"
+            exit 0
+          fi
           VER=$(echo "$ZIP_NAME" | sed -E 's/.*-(v[0-9.]+)\.zip/\1/')
           echo "প্রত্যাশিত ভার্সন: $VER"
           for i in 1 2 3 4 5 6; do
