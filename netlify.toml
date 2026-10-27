@@ -1,7 +1,7 @@
 [build]
   publish = "dist"
   functions = "dist/netlify/functions"
-  command = "ZIP=$(ls -1 COLLECTION-neon-*.zip 2>/dev/null | sort -V | tail -1); if [ -z \"$ZIP\" ]; then echo 'NO ZIP'; exit 1; fi; echo \"Deploying $ZIP\"; rm -rf dist; mkdir -p dist; if command -v unzip >/dev/null 2>&1; then unzip -o \"$ZIP\" -d dist; else python3 -c \"import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall('dist')\" \"$ZIP\"; fi; rm -rf dist/test-*.cjs dist/test-fixtures dist/sql dist/sandbox-server.mjs dist/.github dist/README.md dist/MOBILE-DEPLOY.md dist/netlify-repo-root.toml dist/*.csv dist/preview-data.json; cd dist && npm install --omit=dev --no-package-lock --no-audit --no-fund"
+  command = "rm -rf dist && mkdir -p dist/shared dist/netlify/functions && cp index.html app.js styles.css sw.js manifest.webmanifest package.json package-lock.json netlify.toml dist/ && cp shared/*.js dist/shared/ && cp netlify/functions/* dist/netlify/functions/ && cd dist && npm install --omit=dev --no-package-lock --no-audit --no-fund"
 
 [build.environment]
   NODE_VERSION = "20"
@@ -9,6 +9,8 @@
 [functions]
   node_bundler = "esbuild"
 
+# নতুন ভার্সন প্রকাশের পরে ব্রাউজার পুরোনো app.js/styles.css ক্যাশ করে রাখতে পারত —
+# তাই অ্যাসেটে ক্যাশ-বাস্টিং ও কোনো ক্যাশ না রাখার হেডার দেওয়া হলো।
 [[headers]]
   for = "/app.js"
   [headers.values]
@@ -21,6 +23,16 @@
 
 [[headers]]
   for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/manifest.webmanifest"
   [headers.values]
     Cache-Control = "no-store, max-age=0"
 

@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>কালেকশন ম্যানেজার — আদায় ও কিস্তি রিপোর্ট</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=9.42">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f766e">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+</head>
+<body>
+
+<!-- ===================== সেটআপ / লগইন স্ক্রিন ===================== -->
+<div id="setup-screen" class="setup-screen hidden">
+  <div class="setup-card">
+    <div class="setup-logo">💰</div>
+    <h1>কালেকশন ম্যানেজার</h1>
+    <p class="setup-sub">ডাটা Neon PostgreSQL-এ সংরক্ষিত থাকবে</p>
+
+    <div class="mode-notice public-api-warning">⚠️ এই সংস্করণে লগইন/অ্যাক্সেস কোড নেই। সাইটের লিংক জানা যে কেউ সদস্যের তথ্য ও আদায় পড়তে, বদলাতে বা মুছতে পারবে। ব্যক্তিগত তথ্যের জন্য উপযুক্ত নয়।</div>
+
+    <div id="shared-settings" class="mode-settings">
+      <div id="shared-refresh-wrap" class="field">
+        <label for="set-refresh">রিফ্রেশ ইন্টারভাল (সেকেন্ড)</label>
+        <input type="number" id="set-refresh" value="10" min="8" max="3600">
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="set-autorefresh" checked>
+        Neon ডাটা নিজে নিজে রিফ্রেশ করুন (Auto-sync)
+      </label>
+    </div>
+
+    <div class="backup-panel">
+      <strong>🛡️ ডেটা ব্যাকআপ</strong>
+      <p>Neon বন্ধ থাকলেও এই ডিভাইসে সেভ থাকা সর্বশেষ data ও pending entries-এর JSON backup নিন। এতে কোনো API key বা connection string থাকে না।</p>
+      <button class="btn ghost backup-download-btn" id="btn-download-backup" type="button">⬇️ Backup Download</button>
+      <p id="backup-status" class="hint hint-sm" aria-live="polite"></p>
+    </div>
+
+    <div id="setup-error" class="setup-error hidden"></div>
+    <div class="setup-actions">
+      <button class="btn ghost" id="btn-test-conn">🔗 সংযোগ পরীক্ষা</button>
+      <button class="btn primary" id="btn-save-settings">💾 সংযোগ সেভ করুন</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===================== নাম / ভূমিকা নির্বাচন ===================== -->
+<div id="identity-screen" class="identity-screen hidden" role="dialog" aria-modal="true" aria-labelledby="identity-title">
+  <div class="identity-card">
+    <div class="setup-logo">💰</div>
+    <h1 id="identity-title">কালেকশন ম্যানেজার</h1>
+    <p class="setup-sub">কাজ শুরু করতে আপনার নাম বা ভূমিকা বেছে নিন</p>
+    <label class="identity-label" for="identity-select">👤 নাম / ভূমিকা</label>
+    <select id="identity-select" class="select identity-select">
+      <option value="">— নির্বাচন করুন —</option>
+    </select>
+    <button class="btn primary identity-enter" id="btn-enter-identity" type="button">প্রবেশ করুন →</button>
+    <p id="identity-status" class="hint identity-status">নাম বা ভূমিকা বেছে প্রবেশ করুন।</p>
+    <div class="identity-rules">
+      <span><b>Staff:</b> নিজের ডেটা ও নিজের এন্ট্রি</span>
+      <span><b>Manager:</b> সব ডেটা শুধু দেখা</span>
+      <span><b>Admin:</b> সব কাজ ও database upload</span>
+    </div>
+    <p class="identity-offline-note">📴 Internet না থাকলেও অ্যাপ ও এন্ট্রি চলবে; online এলে অপেক্ষমাণ এন্ট্রি নিজে থেকে sync হবে।</p>
+  </div>
+</div>
+
+<!-- ===================== মূল অ্যাপ ===================== -->
+<div id="app" class="hidden">
+
+  <header class="app-header">
+    <div class="header-top">
+      <div class="brand">
+        <span class="brand-icon">💰</span>
+        <div>
+          <h1>কালেকশন ম্যানেজার</h1>
+          <span id="repo-badge" class="repo-badge">—</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span id="offline-badge" class="sync-badge online" title="Internet ও sync অবস্থা">● অনলাইন</span>
+        <button class="identity-switch" id="btn-switch-identity" type="button" title="নাম / ভূমিকা বদলান"><span id="identity-badge">Admin</span> ⇄</button>
+        <button class="icon-btn" id="btn-refresh" title="রিফ্রেশ">🔄</button>
+        <button class="icon-btn" id="btn-settings" title="সেটিংস" data-admin-only>⚙️</button>
+      </div>
+    </div>
+    <div class="header-meta">
+      <span id="sync-status">সিঙ্ক হয়নি</span>
+      <span id="sync-dot" class="dot"></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="installment-page" class="app-page">
+    <!-- ============ ফিল্টার ============ -->
+    <div class="filter-bar">
+      <div class="staff-center-search-row">
+        <div class="filter-item" id="fi-staff"><label>👤 ষ্টাফ</label><select id="f-staff" class="select"><option value="">সব ষ্টাফ</option></select></div>
+        <div class="filter-item" id="fi-center"><label>🏢 সেন্টার কোড</label><select id="f-center" class="select"><option value="">সব সেন্টার</option></select></div>
+      </div>
+      <div class="record-search" id="fi-member" aria-label="কিস্তি তালিকায় খুঁজুন">
+        <label class="sr-only" for="f-search-key">কোন তথ্য দিয়ে খুঁজবেন</label>
+        <select id="f-search-key" class="select" aria-label="সার্চের ধরন">
+          <option value="memberCode">মেম্বার কোড</option>
+          <option value="centerCode">সমিতি কোড</option>
+          <option value="memberName">মেম্বার নাম</option>
+          <option value="promiseDate">প্রতিশ্রুতির তারিখ (দেওয়া/পরবর্তী)</option>
+        </select>
+        <label class="sr-only" for="f-member">খোঁজার শব্দ</label>
+        <input type="search" id="f-member" class="search" placeholder="সার্চ লিখুন…">
+        <button class="btn ghost" id="btn-clear-filters" type="button">✖ মুছুন</button>
+      </div>
+      <details class="advanced-filters">
+        <summary>অতিরিক্ত ফিল্টার</summary>
+        <div class="advanced-filter-grid">
+          <div class="filter-item" id="fi-date"><label>📅 তারিখ</label><input type="date" id="f-date"></div>
+          <div class="filter-item"><label for="f-followup">📝 প্রতিশ্রুতি দিয়ে খুঁজুন</label><input type="search" id="f-followup" class="search" placeholder="প্রতিশ্রুতির লেখা…"></div>
+          <div class="filter-item" id="fi-followup-date"><label for="f-followup-date">📅 পরবর্তী তারিখ</label><input type="date" id="f-followup-date" aria-label="প্রতিশ্রুতির পরবর্তী তারিখ দিয়ে ফিল্টার"></div>
+        </div>
+      </details>
+      <div class="chips hidden" id="summary-chips">
+        <button class="chip due" id="chip-due">🕒 বাকী <strong>০</strong></button>
+        <button class="chip paid" id="chip-paid">✅ আদায় <strong>০</strong></button>
+        <button class="chip partial" id="chip-partial">⚠️ আংশিক <strong>০</strong></button>
+      </div>
+    </div>
+    <div class="section-view-filter hidden">
+      <label for="section-view-filter">📑 কোন তালিকা দেখাবেন?</label>
+      <select id="section-view-filter" class="select">
+        <option value="all">সব তালিকা (পরপর)</option>
+        <option value="today-promise">আজ প্রতিশ্রুতি</option>
+        <option value="payable">আজ আদায়যোগ্য</option>
+        <option value="due">বাকী কিস্তি</option>
+        <option value="paid">আদায় কিস্তি</option>
+        <option value="partial">আংশিক কিস্তি</option>
+        <option value="balance-directory">💰 অন্যান্য সদস্য তালিকা (মাসিক সদস্য বাদ)</option>
+        <option value="paid-archive">🗂️ স্থায়ী আদায় আর্কাইভ</option>
+      </select>
+    </div>
+    <!-- ============ ডাটা না থাকলে ============ -->
+    <div class="no-data hidden" id="no-data">
+      <div class="big">📤</div>
+      <p>কোনো ডাটা নেই।<br>আপনার CSV ফাইল আপলোড করলেই<br>বাকী · আদায় · আংশিক — ৩টা টেবিল তৈরি হবে।</p>
+      <button class="btn primary big-up" id="btn-upload-2" data-admin-only>📤 CSV আপলোড করুন</button>
+    </div>
+
+    <!-- ============ আজকের প্রতিশ্রুতি (বাকী কিস্তির উপরে) ============ -->
+    <div class="table-card today-promise-card hidden" data-sec id="sec-today-promise">
+      <button class="table-head today-promise-head" data-collapse="sec-today-promise">
+        <span class="th-title">📌 আজ প্রতিশ্রুতি <span class="badge today-promise-badge" id="count-today-promise">০</span><span class="today-promise-date" id="today-promise-date" title="সদস্যের প্রতিশ্রুতি / পরবর্তী তারিখ = আজ (আপনি হাতে যা লিখেছেন)। যে সদস্য আজ আসার ওয়াদা দিয়েছেন তিনিই এখানে।"></span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="table-wrap"><table id="table-today-promise"><thead></thead><tbody id="tbl-today-promise"></tbody></table></div>
+        <div class="empty hidden" id="empty-today-promise">আজ কোনো প্রতিশ্রুতি দেওয়া হয়নি।</div>
+        <div class="tsum" id="sum-today-promise"></div>
+      </div>
+    </div>
+
+    <!-- ============ আজ আদায়যোগ্য (আজ প্রতিশ্রুতি ও বাকী কিস্তির মাঝে) ============ -->
+    <div class="table-card payable-card hidden" data-sec id="sec-payable">
+      <button class="table-head payable-head" data-collapse="sec-payable">
+        <span class="th-title">💰 আজ আদায়যোগ্য <span class="badge payable-badge" id="count-payable">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="table-wrap"><table id="table-payable"><thead></thead><tbody id="tbl-payable"></tbody></table></div>
+        <div class="empty hidden" id="empty-payable">আজকের তারিখের কোনো কিস্তি বাকী নেই।</div>
+        <div class="tsum" id="sum-payable"></div>
+      </div>
+    </div>
+
+    <!-- ============ ১. বাকী কিস্তি ============ -->
+    <div class="table-card hidden" data-sec id="sec-due">
+      <button class="table-head" data-collapse="sec-due">
+        <span class="th-title">🕒 বাকী কিস্তি <span class="badge warn" id="count-due">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="table-wrap">
+          <table id="table-due"><thead></thead><tbody id="tbl-due"></tbody></table>
+        </div>
+        <div class="empty hidden" id="empty-due">এই ফিল্টারে কোনো বাকী কিস্তি নেই।</div>
+        <div class="tsum" id="sum-due"></div>
+      </div>
+    </div>
+
+    <!-- ============ ২. আদায় কিস্তি ============ -->
+    <div class="table-card hidden" data-sec id="sec-paid">
+      <button class="table-head" data-collapse="sec-paid">
+        <span class="th-title">✅ আদায় কিস্তি <span class="badge ok" id="count-paid">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="table-wrap">
+          <table id="table-paid"><thead></thead><tbody id="tbl-paid"></tbody></table>
+        </div>
+        <div class="empty hidden" id="empty-paid">এই ফিল্টারে কোনো আদায় কিস্তি নেই।</div>
+        <div class="tsum" id="sum-paid"></div>
+      </div>
+    </div>
+
+    <!-- ============ ৩. আংশিক কিস্তি ============ -->
+    <div class="table-card hidden" data-sec id="sec-partial">
+      <button class="table-head" data-collapse="sec-partial">
+        <span class="th-title">⚠️ আংশিক কিস্তি <span class="badge part" id="count-partial">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="table-wrap">
+          <table id="table-partial"><thead></thead><tbody id="tbl-partial"></tbody></table>
+        </div>
+        <div class="empty hidden" id="empty-partial">এই ফিল্টারে কোনো আংশিক কিস্তি নেই।</div>
+        <div class="tsum" id="sum-partial"></div>
+      </div>
+    </div>
+
+    <!-- ============ ৪. অন্যান্য সদস্য তালিকা — মাসিক কিস্তির সদস্য বাদ ============ -->
+    <div class="table-card hidden balance-directory-card" data-sec id="sec-balance-directory">
+      <button class="table-head" data-collapse="sec-balance-directory">
+        <span class="th-title">💰 অন্যান্য সদস্য তালিকা <span class="badge ok" id="count-balance-directory">০</span><span class="balance-directory-subtitle">মাসিক সদস্য বাদ</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <p id="balance-directory-count" class="hint"></p>
+        <div id="balance-directory-list" class="balance-center-groups"></div>
+        <div id="balance-directory-grand" class="balance-grand-total">
+          <div class="balance-grand-title">ফিল্টার করা সর্বমোট</div>
+          <div class="balance-grand-values">
+            <span>লোন <b id="balance-total-loan">0</b></span>
+            <span>সঞ্চয় <b id="balance-total-savings">0</b></span>
+            <span>DPS <b id="balance-total-dps">0</b></span>
+            <span class="balance-grand-money">মোট <b id="balance-total-total">৳ 0</b></span>
+          </div>
+        </div>
+        <div id="balance-directory-empty" class="empty hidden">এই ফিল্টারে মাসিক সদস্য বাদে কোনো স্থিতি পাওয়া যায়নি।</div>
+      </div>
+    </div>
+
+    <!-- ============ ৫. স্থায়ী আদায় আর্কাইভ — সবার নিচে আলাদা তালিকা ============ -->
+    <div class="table-card hidden paid-archive-card" data-sec id="sec-paid-archive">
+      <button class="table-head paid-archive-head" data-collapse="sec-paid-archive">
+        <span class="th-title">🗂️ স্থায়ী আদায় আর্কাইভ <span class="badge ok" id="count-paid-archive">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <div class="paid-archive-panel" id="paid-archive-panel">
+          <div class="paid-archive-heading">
+          </div>
+          <div class="paid-archive-toolbar">
+            <label for="paid-archive-month"><span>🗓️ মাস</span><select id="paid-archive-month" class="select"><option value="">সব মাস</option></select></label>
+            <label for="paid-archive-date"><span>📅 আদায়ের তারিখ</span><input type="date" id="paid-archive-date" aria-label="আদায়ের তারিখ অনুযায়ী স্থায়ী আর্কাইভ দেখুন"></label>
+            <button class="btn ghost" id="btn-clear-paid-archive" type="button">✖ সব তারিখ</button>
+            <span class="paid-archive-filter-label" id="paid-archive-filter-label">সব তারিখ</span>
+          </div>
+          <div class="table-wrap paid-archive-table-wrap">
+            <table id="paid-archive-table">
+              <thead><tr><th>আদায়ের তারিখ</th><th>কিস্তির তারিখ</th><th>মেম্বার কোড</th><th>সেন্টার কোড</th><th>মেম্বার নাম</th><th class="amt">কিস্তি</th><th class="amt">আদায়</th></tr></thead>
+              <tbody id="paid-archive-list"></tbody>
+            </table>
+          </div>
+          <div class="empty hidden" id="paid-archive-empty">এই ষ্টাফ/তারিখ/মাসে কোনো আদায় কিস্তি নেই।</div>
+        </div>
+      </div>
+    </div>
+    </section>
+
+    <section id="today-page" class="app-page hidden">
+      <div class="collection-page-header today-header">
+        <div><h2>📒 Today All Collection</h2><p>দুইটি CSV ও দৈনিক এন্ট্রি Neon-এ সিঙ্ক হবে—সব ডিভাইস ও ব্রাউজারে একই তথ্য</p></div>
+        <div class="today-actions">
+          <button class="btn ghost hidden" id="btn-return-page" type="button" title="আগের পেজে ফিরে যান">↩ Return</button>
+          <button class="btn ghost" id="btn-open-member-table" type="button" title="সদস্য ডাটাবেজ টেবিল">🗃️ ডাটাবেজ</button>
+          <button class="btn ghost" id="btn-member-db" data-admin-only>📁 CSV আপলোড</button>
+        </div>
+      </div>
+      <div id="today-balance-summary" class="today-balance-summary"><div class="balance-card is-empty">মেম্বার কোড লিখে সদস্য ও পূর্বের স্থিতি দেখুন।</div></div>
+
+      <div class="today-entry-grid" data-collection-write>
+        <div class="field">
+          <label for="today-member-code">মেম্বার কোড</label>
+          <input id="today-member-code" autocomplete="off" inputmode="numeric" list="today-member-code-options" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="today-code-suggestions">
+          <datalist id="today-member-code-options"></datalist>
+          <div id="today-code-suggestions" class="today-suggestions hidden" role="listbox" aria-label="মেম্বার কোডের সাজেশন"></div>
+        </div>
+        <div class="field"><label for="today-center-code">সেন্টার কোড</label><input id="today-center-code" autocomplete="off" inputmode="numeric" enterkeyhint="done"></div>
+        <div class="field">
+          <label for="today-member-name">মেম্বার নাম</label>
+          <input id="today-member-name" autocomplete="off" list="today-member-name-options" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="today-name-suggestions">
+          <datalist id="today-member-name-options"></datalist>
+          <div id="today-name-suggestions" class="today-suggestions align-right hidden" role="listbox" aria-label="মেম্বার নামের সাজেশন"></div>
+        </div>
+        <div class="field"><label for="today-loan">লোন</label><input id="today-loan" type="number" min="0" step="0.01" inputmode="decimal"></div>
+        <div class="field"><label for="today-savings">সঞ্চয়</label><input id="today-savings" type="number" min="0" step="0.01" inputmode="decimal"></div>
+        <div class="field"><label for="today-dps">DPS</label><input id="today-dps" type="number" min="0" step="0.01" inputmode="decimal"></div>
+        <div class="field"><label for="today-total">মোট</label><input id="today-total" type="number" min="0" step="0.01" inputmode="decimal" title="লোন, সঞ্চয়, DPS ও মোট—যেকোনো তিনটি পূরণ করলে বাকি ঘরটি অটো হিসাব হবে"></div>
+        <div class="today-form-actions">
+          <button class="btn primary today-add-btn" id="btn-add-today" type="button">＋ তালিকায় যোগ</button>
+          <button class="btn danger hidden" id="btn-cancel-edit" type="button" title="এডিট বাতিল করুন">✖ বাতিল</button>
+          <button class="btn ghost" id="btn-reset-today" type="button" title="শুধু এন্ট্রি ঘরগুলো ফাঁকা করে — তালিকা, কিস্তি বা খাতা কিছুই বদলায় না">↻ রিসেট</button>
+        </div>
+      </div>
+      <div id="today-amount-note" class="today-amount-note" aria-live="polite">লোন, সঞ্চয়, DPS ও মোট—যেকোনো ৩টি ঘর পূরণ করলে বাকি ঘরটি অটো আসবে।</div>
+      <div id="today-entry-note" class="today-entry-note"></div>
+      <div id="today-old-note" class="today-old-note hidden"></div>
+      <div class="today-table-card table-card">
+        <div class="today-sub-head"><span class="th-title">📅 মাসিক আদায় <span class="badge ok" id="count-today-monthly">০</span><span class="today-origin-count" id="today-monthly-origin"><span class="today-origin-item">বাকী কিস্তি থেকে আদায় <span class="badge ok" id="today-origin-due">০</span></span><span class="today-origin-separator">·</span><span class="today-origin-item">আংশিক কিস্তি থেকে আদায় <span class="badge part" id="today-origin-partial">০</span></span></span></span></div>
+        <div class="table-wrap">
+          <table class="today-table">
+            <thead><tr><th>#</th><th>মেম্বার কোড</th><th>সেন্টার কোড</th><th>মেম্বার নাম</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th><th class="col-actions">কাজ</th></tr></thead>
+            <tbody id="today-monthly-list"></tbody>
+            <tfoot><tr><td colspan="4" class="total-label">সর্বমোট</td><td class="amt" id="today-monthly-total-loan">0</td><td class="amt" id="today-monthly-total-savings">0</td><td class="amt" id="today-monthly-total-dps">0</td><td class="amt total-grand" id="today-monthly-total-total">৳ 0</td><td></td></tr></tfoot>
+          </table>
+        </div>
+        <div id="today-monthly-empty" class="empty">এই তালিকায় এখনো কোনো মাসিক আদায় নেই।</div>
+      </div>
+
+      <div class="today-table-card table-card">
+        <div class="today-sub-head"><span class="th-title">🗂️ অন্যান্য আদায় <span class="badge warn" id="count-today-other">০</span></span></div>
+        <div class="table-wrap">
+          <table class="today-table">
+            <thead><tr><th>#</th><th>মেম্বার কোড</th><th>সেন্টার কোড</th><th>মেম্বার নাম</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th><th class="col-actions">কাজ</th></tr></thead>
+            <tbody id="today-other-list"></tbody>
+            <tfoot><tr><td colspan="4" class="total-label">সর্বমোট</td><td class="amt" id="today-other-total-loan">0</td><td class="amt" id="today-other-total-savings">0</td><td class="amt" id="today-other-total-dps">0</td><td class="amt total-grand" id="today-other-total-total">৳ 0</td><td></td></tr></tfoot>
+          </table>
+        </div>
+        <div id="today-other-empty" class="empty">এই তালিকায় এখনো কোনো অন্যান্য আদায় নেই।</div>
+      </div>
+
+      <div id="today-staff-groups" class="today-staff-groups" aria-live="polite"></div>
+      <div id="today-staff-empty" class="empty hidden">আজকের আদায়ের কোনো staff-wise হিসাব নেই।</div>
+
+      <div class="today-table-card table-card today-grand-card" id="today-grand-summary" aria-live="polite" aria-label="মাসিক ও অন্যান্য আদায়ের সম্মিলিত লোন, সঞ্চয়, DPS ও মোট">
+        <div class="today-sub-head"><span class="th-title">🧮 মাসিক + অন্যান্য আদায়</span></div>
+        <div class="table-wrap">
+          <table class="today-table today-grand-table">
+            <thead><tr><th>ক্যাটাগরি</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th></tr></thead>
+            <tfoot><tr><td class="total-label">সর্বমোট</td><td class="amt" id="today-grand-loan">0</td><td class="amt" id="today-grand-savings">0</td><td class="amt" id="today-grand-dps">0</td><td class="amt total-grand" id="today-grand-total">৳ 0</td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- ============ হিসাবের খাতা (ক্লোজ করা হিসাব — কখনো হারায় না) ============ -->
+      <div class="history-card table-card" id="history-card">
+        <div class="history-head">
+          <span class="th-title">📚 হিসাবের খাতা <span class="badge" id="count-history">০</span></span>
+        </div>
+        <div class="history-toolbar">
+          <label class="date-field" for="history-date">
+            <span>📅 তারিখ</span>
+            <input type="date" id="history-date" aria-label="তারিখ অনুযায়ী হিসাব দেখুন">
+          </label>
+          <button class="btn ghost" id="btn-clear-history-date" type="button">✖ সব তারিখ</button>
+          <span class="history-filter-label">দেখাচ্ছে: <b id="history-filter-label">সব তারিখ</b></span>
+        </div>
+        <div class="table-wrap history-table-wrap">
+          <table class="history-table" id="history-table">
+            <thead><tr><th>তারিখ</th><th>ধরন</th><th>মেম্বার কোড</th><th>সেন্টার কোড</th><th>মেম্বার নাম</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th><th class="col-actions">কাজ</th></tr></thead>
+            <tbody id="history-list"></tbody>
+          </table>
+        </div>
+        <div id="history-empty" class="empty">এখনো কোনো হিসাব ক্লোজ করা হয়নি — "✔️ হিসাব ক্লোজ" চাপলে আজকের এন্ট্রি এখানে জমা হবে।</div>
+      </div>
+
+      <div class="today-close-bar" data-collection-write>
+        <button class="btn primary today-close-btn" id="btn-close-today" type="button" title="আজকের সব এন্ট্রি তারিখভিত্তিক স্থায়ী খাতায় জমা করুন">✔️ হিসাব ক্লোজ</button>
+        <span class="today-close-note">আজকের সব এন্ট্রি তারিখভিত্তিক খাতায় জমা হবে।</span>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== নিচের ফিক্সড নেভিগেশন (সব সময় দেখা যায়) ===== -->
+  <nav class="app-menu-shell" aria-label="অ্যাপ মেনু">
+    <div id="app-menu-panel" class="app-menu-panel hidden" role="menu" aria-label="পেজ নির্বাচন">
+      <button type="button" role="menuitem" data-menu-page="today">📒 <span>Today All Collection</span><span class="page-count" id="today-count-badge">০</span></button>
+      <button type="button" role="menuitem" data-menu-page="today-promise">📌 <span>আজ প্রতিশ্রুতি</span></button>
+      <button type="button" role="menuitem" data-menu-page="payable">💰 <span>আজ আদায়যোগ্য</span></button>
+      <button type="button" role="menuitem" data-menu-page="due">🕒 <span>বাকী কিস্তি</span></button>
+      <button type="button" role="menuitem" data-menu-page="paid">✅ <span>আদায় কিস্তি</span></button>
+      <button type="button" role="menuitem" data-menu-page="partial">⚠️ <span>আংশিক কিস্তি</span></button>
+      <button type="button" role="menuitem" data-menu-page="balance-directory">👥 <span>অন্যান্য সদস্য তালিকা</span></button>
+      <button type="button" role="menuitem" data-menu-page="paid-archive">🗂️ <span>স্থায়ী আদায় আর্কাইভ</span></button>
+    </div>
+    <button id="btn-app-menu" class="app-menu-button" type="button" aria-label="মেনু খুলুন" aria-expanded="false" aria-controls="app-menu-panel">
+      <span class="app-menu-line"></span><span class="app-menu-line"></span><span class="app-menu-line"></span>
+    </button>
+  </nav>
+
+  <input type="file" id="member-csv-file" accept=".csv,.xls,.xlsx,.html,.htm,text/csv,text/plain,text/html,application/vnd.ms-excel,application/octet-stream" hidden>
+  <input type="file" id="balance-csv-file" accept=".csv,.xls,.xlsx,.html,.htm,text/csv,text/plain,text/html,application/vnd.ms-excel,application/octet-stream" hidden>
+</div>
+
+<div id="member-db-table-modal" class="modal-overlay hidden">
+  <div class="modal member-db-modal">
+    <div class="modal-head"><h3>🗃️ সদস্য ডাটাবেজ</h3><button class="close-btn" data-close="member-db-table-modal" aria-label="বন্ধ করুন">✕</button></div>
+    <div class="modal-body">
+      <div class="member-db-filters">
+        <input id="member-db-code-search" type="search" inputmode="numeric" placeholder="মেম্বার কোড দিয়ে খুঁজুন…" aria-label="মেম্বার কোড দিয়ে খুঁজুন">
+        <input id="member-db-center-search" type="search" inputmode="numeric" placeholder="সেন্টার কোড দিয়ে খুঁজুন…" aria-label="সেন্টার কোড দিয়ে খুঁজুন">
+      </div>
+      <p id="member-db-count" class="hint"></p>
+      <div class="table-wrap member-db-table-wrap"><table class="member-db-table"><thead><tr><th>মেম্বার কোড</th><th>সেন্টার কোড</th><th>সদস্যের নাম</th><th>মোবাইল</th><th>পিতা/স্বামী/অভিভাবক</th></tr></thead><tbody id="member-db-list"></tbody></table></div>
+      <div id="member-db-empty" class="empty hidden">কিস্তির তালিকা ও পূর্বের স্থিতি আপলোড করুন—সক্রিয় সদস্যদের কল/details এখানে দেখা যাবে।</div>
+    </div>
+  </div>
+</div>
+
+<div id="member-csv-modal" class="modal-overlay hidden">
+  <div class="modal"><div class="modal-head"><h3>📥 MIS ফাইল আপলোড</h3><button class="close-btn" data-close="member-csv-modal">✕</button></div>
+    <div class="modal-body">
+      <p class="hint">gBanker থেকে ডাউনলোড করা <b>দুটি ফাইল</b> এখানে বেছে নিন — <b>একসাথে দুটিও দেওয়া যায়</b>। ফাইল কোনটি কী রিপোর্ট, তা নিজে থেকেই চেনা হয় (CSV · লেগ্য .xls · HTML — যেকোনো ফরম্যাটে, কোনো মডিফাই ছাড়াই)। সক্রিয় সদস্যদের কল/details balance ও কিস্তির তালিকা থেকেই রক্ষিত থাকে।</p>
+
+      <div class="mis-upload-grid">
+        <div class="mis-upload-card">
+          <div class="mis-upload-title">① কিস্তির তালিকা</div>
+          <p class="hint hint-sm">Monthly Installment Schedule এক্সপোর্ট (.xls / HTML)</p>
+          <button class="btn ghost" id="btn-pick-mis-installment" type="button">ফাইল বাছুন</button>
+          <p class="hint hint-sm mis-status" id="mis-status-installment"></p>
+        </div>
+        <div class="mis-upload-card">
+          <div class="mis-upload-title">② পূর্বের স্থিতি</div>
+          <p class="hint hint-sm">Balance Compare with Passbook (.csv / .xls)</p>
+          <button class="btn ghost" id="btn-pick-mis-balance" type="button">ফাইল বাছুন</button>
+          <p class="hint hint-sm mis-status" id="mis-status-balance"></p>
+        </div>
+      </div>
+
+      <button class="btn primary" id="btn-pick-mis-all" type="button">📂 দুটি ফাইল একসাথে বেছে নিন</button>
+      <p class="hint hint-sm">একসাথে বেছে নিলে প্রতিটি ফাইলের ধরন নিজে থেকেই শনাক্ত হয়ে ঠিক ঘরে বসবে।<br><b>মোবাইলে:</b> ফোনের Downloads/Files ফোল্ডার থেকে কিস্তির তালিকা ও পূর্বের স্থিতি বেছে নিন।</p>
+      <input type="file" id="mis-files-all" accept=".csv,.xls,.xlsx,.html,.htm,text/csv,text/plain,text/html,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream" multiple hidden>
+      <input type="file" id="mis-file-installment" accept=".csv,.xls,.xlsx,.html,.htm,text/csv,text/plain,text/html,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream" hidden>
+      <input type="file" id="mis-file-balance" accept=".csv,.xls,.xlsx,.html,.htm,text/csv,text/plain,text/html,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream" hidden>
+
+      <button class="btn primary" id="btn-apply-mis-files" type="button" disabled>⬆️ ফাইলগুলো আপলোড করে ডেটাবেজ আপডেট করুন</button>
+      <p id="mis-upload-status" class="hint"></p>
+      <p id="member-csv-status" class="hint"></p>
+      <p id="balance-csv-status" class="hint"></p>
+
+    </div>
+  </div>
+</div>
+
+<div id="followup-modal" class="modal-overlay hidden">
+  <div class="modal followup-modal">
+    <div class="modal-head"><h3>📝 সদস্যের প্রতিশ্রুতি</h3><button class="close-btn" data-close="followup-modal" aria-label="বন্ধ করুন">✕</button></div>
+    <div class="modal-body">
+      <p id="followup-member" class="hint"></p>
+      <div class="field"><label for="followup-promise">সদস্যের প্রতিশ্রুতি / নোট</label><textarea id="followup-promise" rows="4" maxlength="3000" placeholder="যেমন: শুক্রবারের মধ্যে বকেয়া দেবেন"></textarea></div>
+      <div class="field date-input-field"><label for="followup-date">পরবর্তী তারিখ</label><input type="date" id="followup-date" aria-label="পরবর্তী তারিখ"></div>
+      <div id="followup-error" class="setup-error hidden"></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-close="followup-modal">বাতিল</button><button class="btn primary" id="btn-save-followup">💾 সেভ করুন</button></div>
+  </div>
+</div>
+
+<!-- ===================== সদস্যের সম্পূর্ণ তথ্য ===================== -->
+<div id="member-details-modal" class="modal-overlay hidden">
+  <div class="modal member-modal">
+    <div class="modal-head">
+      <h3 id="member-modal-title">সদস্যের তথ্য</h3>
+      <button class="close-btn" data-close="member-details-modal" aria-label="বন্ধ করুন">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="member-modal-actions">
+        <div id="member-call-action" class="member-call-action"></div>
+        <div id="member-collection-action" class="member-collection-action"></div>
+      </div>
+      <div id="member-detail-grid" class="member-detail-grid"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="member-details-modal">বন্ধ করুন</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== CSV আপলোড মডাল ===================== -->
+<div id="csv-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>📤 CSV আপলোড করুন</h3>
+      <button class="close-btn" data-close="csv-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint">নতুন CSV আপলোড করলে Neon-এর আগের কিস্তি CSV-র সারিগুলো নতুন ফাইল দিয়ে প্রতিস্থাপিত হবে। আদায়ের ইতিহাস আলাদা থাকবে.</p>
+      <label class="drop-zone" id="drop-zone">
+        <input type="file" id="csv-file" accept=".csv,text/csv" hidden>
+        <span>📁 CSV ফাইল নির্বাচন করুন বা এখানে ছুড়ে দিন</span>
+        <small>UTF-8 এনকোডিংয়ে সেভ করা CSV ব্যবহার করুন</small>
+      </label>
+
+      <div id="csv-preview-wrap" class="hidden">
+        <div id="csv-detect" class="detect-box"></div>
+        <h4>প্রিভিউ (প্রথম ৫ সারি)</h4>
+        <div class="table-wrap small">
+          <table id="csv-preview"><thead></thead><tbody></tbody></table>
+        </div>
+        <div id="csv-error" class="setup-error hidden"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-close="csv-modal">বাতিল</button>
+      <button class="btn primary" id="btn-apply-csv" disabled>📊 টেবিল দেখুন</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="shared/csv-rules.js?v=9.42"></script>
+<script src="shared/xls-reader.js?v=9.42"></script>
+<script src="shared/active-members.js?v=9.42"></script>
+<script src="app.js?v=9.42"></script>
+</body>
+</html>

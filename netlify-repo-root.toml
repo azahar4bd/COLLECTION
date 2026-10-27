@@ -1,0 +1,39 @@
+# ⚠️ রিপোর ROOT-এ এই লেখাটা ঠিক নামে রাখুন:  netlify.toml
+# রিপো → Add file → Create new file → File name: netlify.toml → পুরোটা পেস্ট → Commit changes
+#
+# কেন দরকার: রিপো লিংক করা আছে, কিন্তু netlify.toml না থাকায় Netlify রিপোর
+# পুরোনো index.html/app.js (v4.3) পাবলিশ করে ফেলে এবং ফাংশনও হারিয়ে যায়।
+# এই ফাইল থাকলে Netlify সবচেয়ে নতুন COLLECTION-neon-*.zip আনজিপ করে
+# dist/ বানায় এবং ফাংশনসহ ঠিকভাবে ডিপ্লয় করে।
+
+[build]
+  publish = "dist"
+  functions = "dist/netlify/functions"
+  command = "ZIP=$(ls -1 COLLECTION-neon-*.zip 2>/dev/null | sort -V | tail -1); if [ -z \"$ZIP\" ]; then echo 'NO ZIP'; exit 1; fi; echo \"Deploying $ZIP\"; rm -rf dist; mkdir -p dist; if command -v unzip >/dev/null 2>&1; then unzip -o \"$ZIP\" -d dist; else python3 -c \"import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall('dist')\" \"$ZIP\"; fi; rm -rf dist/test-*.cjs dist/test-fixtures dist/sql dist/sandbox-server.mjs dist/.github dist/README.md dist/MOBILE-DEPLOY.md dist/netlify-repo-root.toml dist/*.csv dist/preview-data.json; cd dist && npm install --omit=dev --no-package-lock --no-audit --no-fund"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  node_bundler = "esbuild"
+
+# নতুন ভার্সনের পরে ব্রাউজার পুরোনো app.js/styles.css ক্যাশ রাখতে পারে
+[[headers]]
+  for = "/app.js"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/styles.css"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[redirects]]
+  from = "/api/data"
+  to = "/.netlify/functions/data"
+  status = 200

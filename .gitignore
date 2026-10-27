@@ -1,0 +1,26 @@
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+
+# Dependencies and local Netlify state
+node_modules/
+.netlify/
+
+# OS/editor files
+.DS_Store
+
+# Real member/upload/backup data — public repository-তে নয়
+preview-data.json
+MemberlistReport*.csv
+MonthlyBalances*.csv
+COLLECTION-backup-*.json
+
+# Local-only regressions that read real uploads/preview data
+# (public-safe synthetic equivalents are committed)
+test-real-csv.cjs
+test-staff-edit-real.cjs
+test-edit-session-stability.cjs
+
+# One-off local migration/diagnostic scripts
+tools/

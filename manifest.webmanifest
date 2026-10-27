@@ -1,0 +1,11 @@
+{
+  "name": "কালেকশন ম্যানেজার",
+  "short_name": "কালেকশন",
+  "description": "Staff-wise offline collection and installment manager",
+  "lang": "bn",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f7f5",
+  "theme_color": "#0f766e"
+}
