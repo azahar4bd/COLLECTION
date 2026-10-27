@@ -1,0 +1,54 @@
+name: Transfer Neon env to new Netlify site
+
+# One-time, manually triggered migration. Secret values are never printed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    env:
+      OLD_NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      OLD_NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+      NEW_NETLIFY_AUTH_TOKEN: ${{ secrets.NEW_NETLIFY_AUTH_TOKEN }}
+      NEW_NETLIFY_SITE_ID: ${{ secrets.NEW_NETLIFY_SITE_ID }}
+    steps:
+      - name: Copy DATABASE_URL without exposing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          for var in OLD_NETLIFY_AUTH_TOKEN OLD_NETLIFY_SITE_ID NEW_NETLIFY_AUTH_TOKEN NEW_NETLIFY_SITE_ID; do
+            if [ -z "${!var:-}" ]; then echo "Missing required secret: $var"; exit 1; fi
+          done
+          npx --yes netlify-cli@17 --version >/dev/null 2>&1
+          if ! DB_URL="$(npx --yes netlify-cli@17 env:get DATABASE_URL \
+            --context production --site "$OLD_NETLIFY_SITE_ID" --auth "$OLD_NETLIFY_AUTH_TOKEN" \
+            2>/tmp/old-netlify-env-get.log)"; then
+            echo "Could not read DATABASE_URL from the previous site; diagnostic output withheld."
+            exit 1
+          fi
+          case "$DB_URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "Previous DATABASE_URL was empty or invalid; diagnostic output withheld."; exit 1 ;;
+          esac
+          if ! npx --yes netlify-cli@17 env:set DATABASE_URL "$DB_URL" \
+            --site "$NEW_NETLIFY_SITE_ID" --auth "$NEW_NETLIFY_AUTH_TOKEN" \
+            >/tmp/new-netlify-env-set.log 2>&1; then
+            echo "Could not set DATABASE_URL on the new site; diagnostic output withheld."
+            exit 1
+          fi
+          if ! VERIFY="$(npx --yes netlify-cli@17 env:get DATABASE_URL \
+            --context production --site "$NEW_NETLIFY_SITE_ID" --auth "$NEW_NETLIFY_AUTH_TOKEN" \
+            2>/tmp/new-netlify-env-get.log)"; then
+            echo "Could not verify DATABASE_URL on the new site; diagnostic output withheld."
+            exit 1
+          fi
+          if [ "$VERIFY" != "$DB_URL" ]; then
+            echo "Transferred DATABASE_URL verification mismatch; values withheld."
+            exit 1
+          fi
+          unset DB_URL VERIFY
+          echo "DATABASE_URL transferred and verified securely; value withheld."
