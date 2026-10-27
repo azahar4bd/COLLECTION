@@ -24,10 +24,27 @@ jobs:
             if [ -z "${!var:-}" ]; then echo "Missing required secret: $var"; exit 1; fi
           done
           npx --yes netlify-cli@17 --version >/dev/null 2>&1
-          if ! DB_URL="$(npx --yes netlify-cli@17 env:get DATABASE_URL \
-            --context production --site "$OLD_NETLIFY_SITE_ID" --auth "$OLD_NETLIFY_AUTH_TOKEN" \
-            2>/tmp/old-netlify-env-get.log)"; then
-            echo "Could not read DATABASE_URL from the previous site; diagnostic output withheld."
+          HTTP_CODE="$(curl -sS -o /tmp/old-netlify-env.json -w '%{http_code}' \
+            -H "Authorization: Bearer $OLD_NETLIFY_AUTH_TOKEN" \
+            "https://api.netlify.com/api/v1/sites/$OLD_NETLIFY_SITE_ID/env")"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Previous site env API returned HTTP $HTTP_CODE; response withheld."
+            exit 1
+          fi
+          cat > /tmp/read-database-url.cjs <<'NODE'
+          const fs = require('fs');
+          const vars = JSON.parse(fs.readFileSync('/tmp/old-netlify-env.json', 'utf8'));
+          const item = Array.isArray(vars) ? vars.find((entry) => entry && entry.key === 'DATABASE_URL') : null;
+          const values = item && Array.isArray(item.values) ? item.values : [];
+          const selected = values.find((entry) => entry.context === 'all')
+            || values.find((entry) => entry.context === 'production') || values[0];
+          const value = selected && typeof selected.value === 'string' ? selected.value
+            : item && typeof item.value === 'string' ? item.value : '';
+          if (!value) { console.error('DATABASE_URL not found in previous site env; values withheld.'); process.exit(1); }
+          process.stdout.write(value);
+          NODE
+          if ! DB_URL="$(node /tmp/read-database-url.cjs 2>/tmp/old-netlify-env-parse.log)"; then
+            echo "Could not parse DATABASE_URL from the previous site; diagnostic output withheld."
             exit 1
           fi
           case "$DB_URL" in
