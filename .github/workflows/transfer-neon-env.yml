@@ -38,8 +38,12 @@ jobs:
           const values = item && Array.isArray(item.values) ? item.values : [];
           const selected = values.find((entry) => entry.context === 'all')
             || values.find((entry) => entry.context === 'production') || values[0];
-          const value = selected && typeof selected.value === 'string' ? selected.value
+          let value = selected && typeof selected.value === 'string' ? selected.value
             : item && typeof item.value === 'string' ? item.value : '';
+          value = value.trim();
+          if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1).trim();
+          }
           if (!value) { console.error('DATABASE_URL not found in previous site env; values withheld.'); process.exit(1); }
           process.stdout.write(value);
           NODE
@@ -49,7 +53,7 @@ jobs:
           fi
           case "$DB_URL" in
             postgres://*|postgresql://*) ;;
-            *) echo "Previous DATABASE_URL was empty or invalid; diagnostic output withheld."; exit 1 ;;
+            *) if [[ "$DB_URL" == *postgres* ]]; then SCHEME_TEXT=present; else SCHEME_TEXT=absent; fi; echo "Previous DATABASE_URL format invalid (length=${#DB_URL}, postgres-text=$SCHEME_TEXT); value withheld."; exit 1 ;;
           esac
           if ! npx --yes netlify-cli@17 env:set DATABASE_URL "$DB_URL" \
             --site "$NEW_NETLIFY_SITE_ID" --auth "$NEW_NETLIFY_AUTH_TOKEN" \
