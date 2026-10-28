@@ -1,5 +1,5 @@
-/* যাচাই: "আজ প্রতিশ্রুতি" তালিকা = যেসব সদস্যের **প্রতিশ্রুতি / পরবর্তী তারিখ (ইউজার হাতে লিখেছেন) = আজ**।
-   শর্ত = প্রতিশ্রুতির তারিখ; কিস্তির তারিখ বা আদায়ের অবস্থা নয়। */
+/* যাচাই: "আজ প্রতিশ্রুতি" = বাকী কিস্তির মধ্যে যাদের প্রতিশ্রুতির তারিখ আজ।
+   Paid/partial-এর followup সংরক্ষিত থাকলেও এই তালিকায় আসবে না। */
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const assert = require('assert');
@@ -26,16 +26,18 @@ const rows = [
   mk(2, '1405802', 'আজ পরিশোধিত', todayDMY, '1000'),   // আজ + আদায় → থাকবে না
   mk(3, '1405803', 'আগামী বাকী', tomorrowStr, '0'),     // আগামী      → থাকবে না
   mk(4, '1405804', 'গতকাল বাকী', '2026-10-19', '0'),     // গতকাল      → থাকবে না
-  mk(5, '1405805', 'আজ আংশিক', todayDMY, '400'),       // আজ + আংশিক → বাকী ব্যালেন্স আছে, তাই থাকবে
+  mk(5, '1405805', 'আজ আংশিক', todayDMY, '400'),       // আজ + আংশিক → প্রতিশ্রুতি তালিকায় থাকবে না
 ];
 
 const cloud = {
   headers, rows, collections: [],
-  // আজ প্রতিশ্রুতি লেখা হয়েছে, কিন্তু তারিখ আগামী — নতুন নিয়মে আজ প্রতিশ্রুতিতে আসবে না
+  // Paid/partial-এর আজকের followup-ও রাখা হয়েছে—তারা বাকী তালিকায় না থাকায় দেখা যাবে না।
   followups: [
     { key: 'code:1405801', promise: 'আজই আসবেন', nextDate: today, givenDate: today, memberCode: '1405801', memberName: 'আজ বাকী' },
+    { key: 'code:1405802', promise: 'পরিশোধিত সদস্যের নোট', nextDate: today, givenDate: today, memberCode: '1405802', memberName: 'আজ পরিশোধিত' },
     { key: 'code:1405803', promise: 'শনিবার', nextDate: tomorrowStr, givenDate: today, memberCode: '1405803', memberName: 'আগামী বাকী' },
     { key: 'code:1405804', promise: 'গতকাল', nextDate: '2026-10-19', givenDate: today, memberCode: '1405804', memberName: 'গতকাল বাকী' },
+    { key: 'code:1405805', promise: 'আংশিক সদস্যের নোট', nextDate: today, givenDate: today, memberCode: '1405805', memberName: 'আজ আংশিক' },
   ],
   dailyData: { memberDBHeaders: [], memberDB: [], balanceHeaders: [], balanceRows: [], todayRows: [] },
 };
@@ -67,6 +69,14 @@ setTimeout(() => {
   check('আজ প্রতিশ্রুতিতে শুধু যাদের প্রতিশ্রুতির তারিখ = আজ', () => {
     const names = promiseNames();
     assert.deepStrictEqual(names, ['আজ বাকী'], `পাওয়া গেল: ${JSON.stringify(names)}`);
+  });
+
+  check('প্রতিশ্রুতি তালিকা সবসময় বাকী কিস্তির subset; paid/partial বাদ', () => {
+    const promised = promiseNames();
+    const due = dueNames();
+    assert.ok(promised.every((name) => due.includes(name)), `বাকীর বাইরের নাম: ${JSON.stringify(promised.filter((name) => !due.includes(name)))}`);
+    assert.ok(!promised.includes('আজ পরিশোধিত'), 'পরিশোধিত সদস্য প্রতিশ্রুতিতে আছে');
+    assert.ok(!promised.includes('আজ আংশিক'), 'আংশিক সদস্য প্রতিশ্রুতিতে আছে');
   });
 
   check('প্রতিশ্রুতির তারিখ আজ নয় (আগামী/গতকাল) — তারা এই তালিকায় আসে না', () => {

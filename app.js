@@ -106,7 +106,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.42';
+const APP_VER = 'v9.43';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -1745,14 +1745,16 @@ function renderTables() {
   const groups = { due: [], paid: [], partial: [] };
   const today = localDateInputValue();
   for (const r of rows) groups[rowStatus(r)].push(r);
-  // "আজ প্রতিশ্রুতি" = যেসব সদস্যের **প্রতিশ্রুতি / পরবর্তী তারিখ (ইউজার নিজে হাতে যা লিখেছেন) = আজ**।
-  // শর্ত = প্রতিশ্রুতির তারিখ (কিস্তির তারিখ বা আদায়ের অবস্থা নয়) — যে সদস্য আজ আসার ওয়াদা দিয়েছেন, তিনিই এই তালিকায়।
+  // "আজ প্রতিশ্রুতি" = **বাকী কিস্তির মধ্যে** যেসব সদস্যের
+  // প্রতিশ্রুতি / পরবর্তী তারিখ (ইউজার নিজে হাতে লিখেছেন) = আজ।
+  // Paid/partial-এর saved followup মুছে না গেলেও এই তালিকায় দেখা যাবে না।
   // "আজ আদায়যোগ্য" = আজ যে কিস্তি পড়েছে (কিস্তির তারিখ = আজ) অথচ টাকা এখনো পুরো আসেনি (বাকী + আংশিক)।
   const payable = rows.filter((row) => {
     const st = rowStatus(row);
     return (st === 'due' || st === 'partial') && rowDateISO(row) === today;
   });
-  const todayPromises = rows.filter((row) => {
+  /* groups.due-ই বাকী কিস্তি তালিকার source—তাই প্রতিশ্রুতি সবসময় তার subset। */
+  const todayPromises = groups.due.filter((row) => {
     const followup = getFollowup(row);
     return !!followup && String(followup.nextDate || '').slice(0, 10) === today;
   });
@@ -1768,7 +1770,7 @@ function renderTables() {
   const dateBadge = $('#today-promise-date');
   if (dateBadge) dateBadge.textContent = `(${todayLabel})`;
   const emptyPromise = $('#empty-today-promise');
-  if (emptyPromise) emptyPromise.textContent = `আজ (${todayLabel}) তারিখের জন্য কোনো প্রতিশ্রুতি লেখা নেই — কিস্তি তালিকার 📝 লিখুন থেকে লিখুন।`;
+  if (emptyPromise) emptyPromise.textContent = `বাকী কিস্তির মধ্যে আজ (${todayLabel}) তারিখের প্রতিশ্রুতি নেই — বাকী কিস্তির 📝 লিখুন থেকে লিখুন।`;
 
   $('#chip-due strong').textContent = fmt(groups.due.length);
   $('#chip-paid strong').textContent = fmt(groups.paid.length);
