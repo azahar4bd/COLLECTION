@@ -170,49 +170,71 @@ setTimeout(async () => {
     assert(saved && saved.history.length === 4 && saved.dailyData.todayRows.length === 0, 'পুনরায় Close sync হয়নি');
   });
 
-  await check('খাতার টেবিলে এন্ট্রি ও ধরন দেখায়', () => {
+  await check('প্রতিটি Close batch-এ Today-এর মাসিক/অন্যান্য table ও একই entry rows', () => {
     w.__renderHistory();
-    const cells = $$('#history-list tr').map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent.trim()));
-    assert.strictEqual(cells.length, 4, `সারি ${cells.length}`);
-    const kinds = cells.map((c) => c[1]);
-    assert.strictEqual(kinds.filter((k) => k === '📅 মাসিক').length, 2, `মাসিক সারি = ${kinds.join(',')}`);
-    assert.strictEqual(kinds.filter((k) => k === '🗂️ অন্যান্য').length, 2, `অন্যান্য সারি = ${kinds.join(',')}`);
-    /* সামারি কার্ড বাদ — এখন প্রতিটি সারির মোট যোগ করে দেখি */
-    const totalSum = cells.reduce((sum, c) => sum + Number(String(c[8]).replace(/[^\d০-৯]/g, '').replace(/[০-৯]/g, (d) => '০১২৩৪৫৬৭৮৯'.indexOf(d)) || 0), 0);
+    assert.strictEqual($$('#history-list > [data-history-batch]').length, 1, 'একই Close একাধিক batch হয়েছে');
+    const monthly = $$('#history-list [data-history-category="monthly"] [data-history-id]');
+    const other = $$('#history-list [data-history-category="other"] [data-history-id]');
+    assert.strictEqual(monthly.length, 2, `মাসিক rows ${monthly.length}`);
+    assert.strictEqual(other.length, 2, `অন্যান্য rows ${other.length}`);
+    const cells = [...monthly, ...other].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent.trim()));
+    cells.forEach((row) => assert.strictEqual(row.length, 9, `Today-এর ৯ columns নয়: ${row.join('|')}`));
+    const totalSum = cells.reduce((sum, c) => sum + Number(String(c[7]).replace(/[^\d০-৯]/g, '').replace(/[০-৯]/g, (d) => '০১২৩৪৫৬৭৮৯'.indexOf(d)) || 0), 0);
     assert.strictEqual(totalSum, 1500, `মোট = ${totalSum}`);
   });
 
-  await check('খাতার প্রতিটি সারিতে এডিট ও ডিলিট বাটন আছে', () => {
+  await check('খাতার প্রতিটি entry row-এ Today-এর columns ও এডিট/ডিলিট বাটন আছে', () => {
     w.__renderHistory();
-    const rows = $$('#history-list tr');
-    assert(rows.length > 0, 'সারি নেই');
+    const rows = $$('#history-list [data-history-id]');
+    assert.strictEqual(rows.length, 4, 'Entry rows নেই');
     rows.forEach((tr, i) => {
       assert(tr.querySelector('[data-edit-history]'), `সারি ${i + 1}-এ এডিট নেই`);
       assert(tr.querySelector('[data-del-history]'), `সারি ${i + 1}-এ ডিলিট নেই`);
     });
-    const heads = [...$('#history-table').querySelectorAll('thead th')].map((th) => th.textContent.trim());
-    assert(heads.includes('কাজ'), `কাজ কলাম নেই — ${heads.join(',')}`);
+    const expected = [...$('#today-monthly-list').closest('table').querySelectorAll('thead th')].map((th) => th.textContent.trim());
+    const actual = [...$('#history-list [data-history-table="monthly"]').querySelectorAll('thead th')].map((th) => th.textContent.trim());
+    assert.deepStrictEqual(actual, expected, 'History ও Today-এর columns এক নয়');
   });
 
-  await check('সামারি কার্ডগুলো আর নেই (এন্ট্রি/মাসিক/অন্যান্য/মোট)', () => {
-    assert.strictEqual($('#history-summary'), null, 'সামারি কার্ড এখনো আছে');
-    const html = $('#history-card').textContent;
-    assert(!/মোট আদায়/.test(html), 'মোট আদায় কার্ড এখনো দেখা যাচ্ছে');
+  await check('Today-এর staff-wise, সকল স্টাফ সর্বমোট ও combined summary একই ফরমেটে আছে', () => {
+    assert.strictEqual($$('#history-list [data-history-staff-card]').length, 2, 'Staff-wise cards নেই');
+    assert.strictEqual($$('#history-list [data-history-all-summary]').length, 1, 'সকল স্টাফ summary নেই');
+    assert.strictEqual($$('#history-list [data-history-grand-summary]').length, 1, 'Combined summary নেই');
+    const cells = (root) => [...root.querySelectorAll('td')].map((td) => td.textContent.trim());
+    assert.deepStrictEqual(cells($('#history-list [data-history-all-staff="combined"]')), ['মাসিক + অন্যান্য', '1,000', '500', '0', '৳ 1,500']);
+    assert.deepStrictEqual(cells($('#history-list [data-history-grand-summary] tfoot tr')), ['সর্বমোট', '1,000', '500', '0', '৳ 1,500']);
   });
 
   await check('তারিখ ফিল্টার — অন্য তারিখ দিলে কিছু থাকে না', () => {
     $('#history-date').value = '2020-01-01';
     w.__renderHistory();
-    assert.strictEqual($$('#history-list tr').length, 0, 'ভুল তারিখেও সারি আছে');
+    assert.strictEqual($$('#history-list [data-history-id]').length, 0, 'ভুল তারিখেও সারি আছে');
     assert.ok(!$('#history-empty').classList.contains('hidden'), 'ফাঁকা বার্তা নেই');
     $('#history-date').value = '';
     w.__renderHistory();
-    assert.strictEqual($$('#history-list tr').length, 4, 'সব তারিখে ফিরে আসেনি');
+    assert.strictEqual($$('#history-list [data-history-id]').length, 4, 'সব তারিখে ফিরে আসেনি');
   });
 
   await check('খাতার হিসাব রিলোডেও থাকে (Neon থেকে ফেরা)', () => {
     assert(saved && Array.isArray(saved.history) && saved.history.length === 4, 'payload-এ history নেই');
     assert.strictEqual(saved.history[0].memberName, 'Other Woman');
+  });
+
+  await addEntry('0456', { loan: 100 });
+  await w.__closeTodayAccount();
+  await w.__flush();
+  await check('আলাদা Close আলাদা full-format batch card; পুরোনো batch অপরিবর্তিত', async () => {
+    w.__renderHistory();
+    const batches = $$('#history-list > [data-history-batch]');
+    assert.strictEqual(batches.length, 2, `Batch cards ${batches.length}`);
+    assert.strictEqual($$('#history-list [data-history-id]').length, 5);
+    batches.forEach((batch) => {
+      assert(batch.querySelector('[data-history-category="monthly"]'));
+      assert(batch.querySelector('[data-history-category="other"]'));
+      assert(batch.querySelector('[data-history-staff-groups]'));
+      assert(batch.querySelector('[data-history-all-summary]'));
+      assert(batch.querySelector('[data-history-grand-summary]'));
+    });
   });
 
   console.log(results.join('\n'));

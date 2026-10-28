@@ -106,7 +106,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.44';
+const APP_VER = 'v9.45';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -3163,46 +3163,162 @@ async function saveHistoryEdit(values) {
 }
 
 function renderHistory() {
-  const tbody = $('#history-list'); if (!tbody) return;
-  const items = [...filteredHistory()]
-    .sort((a, b) => compareAZ(a.date, b.date) || compareMemberCodes(a.memberCode, b.memberCode) || compareAZ(a.memberName, b.memberName));
-  const totals = items.reduce((out, item) => {
-    out.loan += num(item.loan); out.savings += num(item.savings); out.dps += num(item.dps); out.total += num(item.total);
-    if (item.kind === 'monthly') out.monthly += num(item.total); else out.other += num(item.total);
-    return out;
-  }, { loan: 0, savings: 0, dps: 0, total: 0, monthly: 0, other: 0 });
+  const container = $('#history-list'); if (!container) return;
+  const visibleItems = new Set(filteredHistory());
+  const indexedItems = state.history.map((item, index) => ({ item, index }))
+    .filter(({ item }) => visibleItems.has(item));
+  const totalize = (entries) => {
+    const totals = entries.reduce((out, { item }) => {
+      out.loan += num(item.loan); out.savings += num(item.savings); out.dps += num(item.dps);
+      return out;
+    }, { loan: 0, savings: 0, dps: 0 });
+    totals.loan = roundMoney(totals.loan); totals.savings = roundMoney(totals.savings); totals.dps = roundMoney(totals.dps);
+    totals.total = roundMoney(totals.loan + totals.savings + totals.dps);
+    return totals;
+  };
+  const amountCells = (totals) => `<td class="amt">${fmtMoney(totals.loan)}</td><td class="amt">${fmtMoney(totals.savings)}</td><td class="amt">${fmtMoney(totals.dps)}</td><td class="amt">৳ ${fmtMoney(totals.total)}</td>`;
+  const footerAmountCells = (totals) => `<td class="amt">${fmtMoney(totals.loan)}</td><td class="amt">${fmtMoney(totals.savings)}</td><td class="amt">${fmtMoney(totals.dps)}</td><td class="amt total-grand">৳ ${fmtMoney(totals.total)}</td>`;
+  const staffAmountCells = (totals) => ['loan', 'savings', 'dps', 'total'].map((key) => `<td class="amt${key === 'total' ? ' total-grand' : ''}">${key === 'total' ? '৳ ' : ''}${fmtMoney(totals[key])}</td>`).join('');
+
+  /* Today-এর monthly/other table-এরই markup: একই columns, center subtotal,
+     category total ও edit/delete action; শুধু history-এর stable ID ব্যবহার হয়। */
+  const entryTable = (category, list) => {
+    const monthlyTable = category === 'monthly';
+    const groups = new Map();
+    list.forEach((entry) => {
+      const center = displayCenterCode(entry.item.centerCode) || '—';
+      if (!groups.has(center)) groups.set(center, []);
+      groups.get(center).push(entry);
+    });
+    let position = 0;
+    const rows = [];
+    [...groups.entries()].sort((a, b) => compareAZ(a[0], b[0])).forEach(([center, entries]) => {
+      entries.forEach(({ item }) => {
+        const id = String(item.id || '');
+        const actions = canEditHistoryEntry(item)
+          ? `<td class="row-actions"><button type="button" class="mini-btn edit" data-edit-history="${esc(id)}" title="এই খাতার এন্ট্রি বদলান">✏️</button><button type="button" class="mini-btn del" data-del-history="${esc(id)}" title="এই খাতার এন্ট্রি মুছুন">🗑️</button></td>`
+          : '<td class="row-actions">—</td>';
+        rows.push(`<tr class="history-entry-row" data-history-id="${esc(id)}">
+          <td>${fmt(++position)}</td><td>${esc(displayMemberCode(item.memberCode))}</td><td>${esc(displayCenterCode(item.centerCode))}</td><td>${esc(item.memberName)}</td>
+          <td class="amt">${fmtMoney(item.loan)}</td><td class="amt">${fmtMoney(item.savings)}</td><td class="amt">${fmtMoney(item.dps)}</td><td class="amt">৳ ${fmtMoney(item.total)}</td>
+          ${actions}</tr>`);
+      });
+      const centerLabel = center === '—' ? 'সেন্টার নেই' : `সেন্টার ${esc(center)}`;
+      rows.push(`<tr class="today-center-total" data-center-total="${esc(center)}">
+        <td colspan="4" class="total-label">${centerLabel} · ${fmt(entries.length)}টি এন্ট্রি · মোট</td>
+        ${amountCells(totalize(entries))}<td></td></tr>`);
+    });
+    const totals = totalize(list);
+    const origins = monthlyTable ? list.reduce((counts, { item }) => {
+      const applied = item.appliedLoan == null ? num(item.loan) : num(item.appliedLoan);
+      if (applied > 0) counts[num(item.prevActual) > 0 ? 'partial' : 'due'] += 1;
+      return counts;
+    }, { due: 0, partial: 0 }) : { due: 0, partial: 0 };
+    const originMarkup = monthlyTable ? `<span class="today-origin-count"><span class="today-origin-item">বাকী কিস্তি থেকে আদায় <span class="badge ok">${fmt(origins.due)}</span></span><span class="today-origin-separator">·</span><span class="today-origin-item">আংশিক কিস্তি থেকে আদায় <span class="badge part">${fmt(origins.partial)}</span></span></span>` : '';
+    return `<section class="today-table-card table-card history-entry-card" data-history-category="${category}">
+      <div class="today-sub-head"><span class="th-title">${monthlyTable ? '📅 মাসিক আদায়' : '🗂️ অন্যান্য আদায়'} <span class="badge ${monthlyTable ? 'ok' : 'warn'}">${fmt(list.length)}</span>${originMarkup}</span></div>
+      <div class="table-wrap"><table class="today-table history-today-table" data-history-table="${category}">
+        <thead><tr><th>#</th><th>মেম্বার কোড</th><th>সেন্টার কোড</th><th>মেম্বার নাম</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th><th class="col-actions">কাজ</th></tr></thead>
+        <tbody>${rows.join('')}</tbody>
+        <tfoot><tr><td colspan="4" class="total-label">সর্বমোট</td>${footerAmountCells(totals)}<td></td></tr></tfoot>
+      </table></div>
+      <div class="empty${list.length ? ' hidden' : ''}">${monthlyTable ? 'এই তালিকায় এখনো কোনো মাসিক আদায় নেই।' : 'এই তালিকায় এখনো কোনো অন্যান্য আদায় নেই।'}</div>
+    </section>`;
+  };
+
+  const batchMarkup = (batch) => {
+    const entries = [...batch.entries].sort((a, b) => compareMemberCodes(a.item.memberCode, b.item.memberCode) || compareAZ(a.item.createdAt, b.item.createdAt));
+    const monthly = entries.filter(({ item }) => item.kind === 'monthly' || (!item.kind && isMonthlyEntry(item)));
+    const otherEntries = entries.filter(({ item }) => item.kind === 'other' || (!item.kind && !isMonthlyEntry(item)));
+    const monthlyTotals = totalize(monthly);
+    const otherTotals = totalize(otherEntries);
+    const combinedTotals = {
+      loan: roundMoney(monthlyTotals.loan + otherTotals.loan),
+      savings: roundMoney(monthlyTotals.savings + otherTotals.savings),
+      dps: roundMoney(monthlyTotals.dps + otherTotals.dps),
+      total: roundMoney(monthlyTotals.total + otherTotals.total),
+    };
+
+    const staffGroups = new Map();
+    const collectStaff = (list, category) => {
+      list.forEach((entry) => {
+        const staff = entryOwnerStaff(entry.item) || 'ষ্টাফ উল্লেখ নেই';
+        if (!staffGroups.has(staff)) staffGroups.set(staff, { monthly: [], other: [] });
+        staffGroups.get(staff)[category].push(entry);
+      });
+    };
+    collectStaff(monthly, 'monthly'); collectStaff(otherEntries, 'other');
+    const staffTotalsRows = (groups) => `
+      <tr class="staff-monthly-total" data-staff-total="monthly"><td colspan="4" class="total-label">মাসিক মোট</td>${staffAmountCells(totalize(groups.monthly))}</tr>
+      <tr class="staff-other-total" data-staff-total="other"><td colspan="4" class="total-label">অন্যান্য মোট</td>${staffAmountCells(totalize(groups.other))}</tr>
+      <tr class="staff-combined-total" data-staff-total="combined"><td colspan="4" class="total-label">সর্বমোট</td>${staffAmountCells(totalize([...groups.monthly, ...groups.other]))}</tr>`;
+    const staffCards = [...staffGroups.entries()].sort((a, b) => compareAZ(a[0], b[0])).map(([staff, groups]) => {
+      const staffEntries = [...groups.monthly.map((entry) => ({ ...entry, category: 'মাসিক' })), ...groups.other.map((entry) => ({ ...entry, category: 'অন্যান্য' }))].sort((a, b) => a.index - b.index);
+      const rows = staffEntries.map((entry) => `<tr data-history-staff-entry="${esc(String(entry.item.id || ''))}"><td>${esc(displayMemberCode(entry.item.memberCode))}</td><td>${esc(displayCenterCode(entry.item.centerCode))}</td><td>${esc(entry.item.memberName || '—')}</td><td>${entry.category}</td>${amountCells(totalize([entry]))}</tr>`).join('');
+      return `<section class="today-table-card table-card today-staff-entry-card history-staff-card" data-history-staff-card="${esc(staff)}">
+        <div class="today-sub-head"><span class="th-title">👤 ${esc(staff)} <span class="badge ok">${fmt(staffEntries.length)}</span></span></div>
+        <div class="table-wrap"><table class="today-table today-staff-entry-table">
+          <thead><tr><th>মেম্বার কোড</th><th>সেন্টার কোড</th><th>মেম্বার নাম</th><th>ধরন</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th></tr></thead>
+          <tbody>${rows}</tbody><tfoot>${staffTotalsRows(groups)}</tfoot>
+        </table></div>
+      </section>`;
+    });
+    if (staffCards.length) staffCards.push(`<section class="today-table-card table-card today-staff-entry-card today-staff-all-card history-staff-all-card" data-history-all-summary>
+      <div class="today-sub-head"><span class="th-title">Σ সকল স্টাফ সর্বমোট <span class="badge ok">${fmt(entries.length)}</span></span></div>
+      <div class="table-wrap"><table class="today-table today-grand-table">
+        <thead><tr><th>ক্যাটাগরি</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th></tr></thead>
+        <tbody>
+          <tr data-history-all-staff="monthly"><td class="total-label">মাসিক</td>${staffAmountCells(monthlyTotals)}</tr>
+          <tr data-history-all-staff="other"><td class="total-label">অন্যান্য</td>${staffAmountCells(otherTotals)}</tr>
+          <tr data-history-all-staff="combined"><td class="total-label">মাসিক + অন্যান্য</td>${staffAmountCells(combinedTotals)}</tr>
+        </tbody>
+      </table></div>
+    </section>`);
+
+    const dates = [...new Set(entries.map(({ item }) => String(item.date || '').slice(0, 10)).filter(Boolean))].sort();
+    const entryDateLabel = dates.length === 1 ? shortDate(dates[0]) : dates.length > 1 ? `${shortDate(dates[0])} – ${shortDate(dates[dates.length - 1])}` : 'তারিখ নেই';
+    const closeDate = batch.closeDate || String(batch.entries[0]?.item.closedAt || '').slice(0, 10);
+    return `<section class="history-batch-card" data-history-batch="${esc(batch.key)}">
+      <div class="history-batch-head"><span class="th-title">✔️ হিসাব ক্লোজ <span class="badge ok">${fmt(entries.length)}</span></span><span class="history-batch-meta">এন্ট্রির তারিখ: ${esc(entryDateLabel)}${closeDate ? ` · ক্লোজ: ${esc(shortDate(closeDate))}` : ''}</span></div>
+      ${entryTable('monthly', monthly)}
+      ${entryTable('other', otherEntries)}
+      <div class="today-staff-groups history-staff-groups" data-history-staff-groups>${staffCards.join('')}</div>
+      <section class="today-table-card table-card today-grand-card history-grand-card" data-history-grand-summary>
+        <div class="today-sub-head"><span class="th-title">🧮 মাসিক + অন্যান্য আদায়</span></div>
+        <div class="table-wrap"><table class="today-table today-grand-table">
+          <thead><tr><th>ক্যাটাগরি</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th></tr></thead>
+          <tfoot><tr><td class="total-label">সর্বমোট</td>${footerAmountCells(combinedTotals)}</tr></tfoot>
+        </table></div>
+      </section>
+    </section>`;
+  };
+
+  const groups = new Map();
+  indexedItems.forEach((entry) => {
+    const key = historyCloseBatchKey(entry.item) || `date:${String(entry.item.date || 'unknown').slice(0, 10)}`;
+    if (!groups.has(key)) groups.set(key, { key, entries: [], closeDate: '', sortTime: 0 });
+    const group = groups.get(key);
+    group.entries.push(entry);
+    group.closeDate ||= String(entry.item.closeDate || '').slice(0, 10);
+    const time = Date.parse(String(entry.item.closedAt || entry.item.createdAt || entry.item.date || '')) || 0;
+    group.sortTime = Math.max(group.sortTime, time);
+  });
+  const batches = [...groups.values()].sort((a, b) => b.sortTime - a.sortTime || compareAZ(b.closeDate, a.closeDate));
+  container.innerHTML = batches.map(batchMarkup).join('');
 
   const dateInput = $('#history-date');
   const filterLabel = dateInput && dateInput.value ? shortDate(dateInput.value) : 'সব তারিখ';
   const setText = (sel, text) => { const el = $(sel); if (el) el.textContent = text; };
-  setText('#count-history', fmt(items.length));
+  setText('#count-history', fmt(indexedItems.length));
   setText('#history-filter-label', filterLabel);
-  tbody.innerHTML = items.map((item) => {
-    const actions = canEditHistoryEntry(item)
-      ? `<td class="row-actions"><button type="button" class="mini-btn edit" data-edit-history="${esc(item.id)}" title="এই খাতার এন্ট্রি বদলান">✏️</button><button type="button" class="mini-btn del" data-del-history="${esc(item.id)}" title="এই খাতার এন্ট্রি মুছুন">🗑️</button></td>`
-      : '<td class="row-actions">—</td>';
-    return `<tr class="${item.kind === 'monthly' ? 'history-monthly' : 'history-other'}">
-    <td>${esc(shortDate(item.date))}</td>
-    <td><span class="kind-chip ${item.kind === 'monthly' ? 'monthly' : 'other'}">${item.kind === 'monthly' ? '📅 মাসিক' : '🗂️ অন্যান্য'}</span></td>
-    <td>${esc(displayMemberCode(item.memberCode) || '—')}</td>
-    <td>${esc(displayCenterCode(item.centerCode) || '—')}</td>
-    <td class="history-name">${esc(item.memberName || '—')}</td>
-    <td class="amt">${fmtMoney(num(item.loan))}</td>
-    <td class="amt">${fmtMoney(num(item.savings))}</td>
-    <td class="amt">${fmtMoney(num(item.dps))}</td>
-    <td class="amt history-total">৳ ${fmtMoney(num(item.total))}</td>
-    ${actions}
-  </tr>`;
-  }).join('');
   const empty = $('#history-empty');
   if (empty) {
     empty.textContent = state.history.length
       ? `${filterLabel} তারিখে কোনো হিসাব নেই।`
       : 'এখনো কোনো হিসাব ক্লোজ করা হয়নি — "✔️ হিসাব ক্লোজ" চাপলে আজকের এন্ট্রি এখানে জমা হবে।';
-    empty.classList.toggle('hidden', items.length > 0);
+    empty.classList.toggle('hidden', indexedItems.length > 0);
   }
-  const table = $('#history-table');
-  if (table) table.classList.toggle('hidden', items.length === 0);
+  container.classList.toggle('hidden', indexedItems.length === 0);
 }
 
 /* এন্ট্রি ফর্মের সব ঘর ফাঁকা (তালিকা বা কিস্তির ডেটা অপরিবর্তিত) */

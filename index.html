@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9.44">
+<link rel="stylesheet" href="styles.css?v=9.45">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f766e">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
@@ -368,12 +368,7 @@
           <button class="btn ghost" id="btn-clear-history-date" type="button">✖ সব তারিখ</button>
           <span class="history-filter-label">দেখাচ্ছে: <b id="history-filter-label">সব তারিখ</b></span>
         </div>
-        <div class="table-wrap history-table-wrap">
-          <table class="history-table" id="history-table">
-            <thead><tr><th>তারিখ</th><th>ধরন</th><th>মেম্বার কোড</th><th>সেন্টার কোড</th><th>মেম্বার নাম</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th><th class="col-actions">কাজ</th></tr></thead>
-            <tbody id="history-list"></tbody>
-          </table>
-        </div>
+        <div id="history-list" class="history-batch-list" aria-live="polite"></div>
         <div id="history-empty" class="empty">এখনো কোনো হিসাব ক্লোজ করা হয়নি — "✔️ হিসাব ক্লোজ" চাপলে আজকের এন্ট্রি এখানে জমা হবে।</div>
       </div>
 
@@ -517,9 +512,9 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="shared/csv-rules.js?v=9.44"></script>
-<script src="shared/xls-reader.js?v=9.44"></script>
-<script src="shared/active-members.js?v=9.44"></script>
-<script src="app.js?v=9.44"></script>
+<script src="shared/csv-rules.js?v=9.45"></script>
+<script src="shared/xls-reader.js?v=9.45"></script>
+<script src="shared/active-members.js?v=9.45"></script>
+<script src="app.js?v=9.45"></script>
 </body>
 </html>

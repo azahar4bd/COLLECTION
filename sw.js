@@ -1,12 +1,12 @@
-const CACHE_NAME = 'collection-shell-v9.44';
+const CACHE_NAME = 'collection-shell-v9.45';
 const APP_SHELL = [
   '/',
   '/index.html',
-  '/styles.css?v=9.44',
-  '/app.js?v=9.44',
-  '/shared/csv-rules.js?v=9.44',
-  '/shared/xls-reader.js?v=9.44',
-  '/shared/active-members.js?v=9.44',
+  '/styles.css?v=9.45',
+  '/app.js?v=9.45',
+  '/shared/csv-rules.js?v=9.45',
+  '/shared/xls-reader.js?v=9.45',
+  '/shared/active-members.js?v=9.45',
   '/manifest.webmanifest',
 ];
 
