@@ -28,6 +28,8 @@ w.eval(fs.readFileSync('app.js', 'utf8') + `
 window.__add = addTodayRow;
 window.__fill = fillTodayMember;
 window.__close = closeTodayAccount;
+window.__undo = undoTodayAccountClose;
+window.__deleteToday = deleteTodayRow;
 window.__renderHistory = renderHistory;
 window.__actual = () => state.rows[0][state.detect.actual];
 `);
@@ -93,6 +95,32 @@ setTimeout(async () => {
   });
   check('ডিলিটে কিস্তির আদায়ও ফিরে যায়', () => {
     assert.strictEqual(Number(w.__actual()), 0, 'কিস্তি = ' + w.__actual());
+  });
+
+  // ---- History edit → Undo → Today delete: appliedLoan baseline অবশ্যই edited loan ----
+  setVal('#today-member-code', '1418');
+  w.__fill();
+  setVal('#today-loan', '700');
+  await w.__add();
+  await w.__close();
+  w.__renderHistory();
+  $('#history-list [data-edit-history]').click();
+  setVal('#today-loan', '900');
+  await w.__add();
+  await w.__undo();
+
+  check('History edit-এর পর Undo করলে Today-এর appliedLoan edited অঙ্কই থাকে', () => {
+    assert.strictEqual(w.__state.todayRows.length, 1);
+    assert.strictEqual(w.__state.history.length, 0);
+    assert.strictEqual(Number(w.__state.todayRows[0].loan), 900);
+    assert.strictEqual(Number(w.__state.todayRows[0].appliedLoan), 900, 'পুরোনো appliedLoan ফিরে এসেছে');
+    assert.strictEqual(Number(w.__actual()), 900, 'Undo-এ Actual বদলেছে');
+  });
+
+  await w.__deleteToday(0);
+  check('Undo করা edited entry মুছলে সম্পূর্ণ আদায়ই ফিরে যায়', () => {
+    assert.strictEqual(w.__state.todayRows.length, 0);
+    assert.strictEqual(Number(w.__actual()), 0, 'Actual = ' + w.__actual());
   });
 
   console.log(results.join('\n'));

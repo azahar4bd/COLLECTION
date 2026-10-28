@@ -106,7 +106,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.43';
+const APP_VER = 'v9.44';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -2752,6 +2752,14 @@ function renderToday() {
       : visibleTodayRows.length === 0 ? 'ক্লোজ করার মতো এন্ট্রি নেই'
       : `${fmt(visibleTodayRows.length)}টি এন্ট্রি হিসাব ক্লোজ করে খাতায় জমা করুন`;
   }
+  const undoBtn = $('#btn-undo-close');
+  const undoBatch = latestUndoableClose();
+  if (undoBtn) {
+    undoBtn.disabled = !canCollect() || !undoBatch?.entries.length;
+    undoBtn.title = !canCollect() ? 'Manager শুধু ডেটা দেখতে পারবেন'
+      : !undoBatch?.entries.length ? 'আনডো করার মতো ক্লোজ করা হিসাব নেই'
+      : `শেষ ক্লোজের ${fmt(undoBatch.entries.length)}টি এন্ট্রি Today-তে ফেরান${undoBatch.closeDate ? ` (${shortDate(undoBatch.closeDate)})` : ''}`;
+  }
   const todayIso = localDateInputValue();
   const oldEntries = visibleTodayRows.filter((item) => String(item.date || '').slice(0, 10) !== todayIso).length;
   if ($('#today-old-note')) {
@@ -2865,6 +2873,33 @@ function cancelTodayEdit(silent = false) {
   if (!silent) toast('এডিট বাতিল হয়েছে');
 }
 
+/* ---------- হিসাব ক্লোজ Undo: শেষ Close batch শনাক্ত করা ---------- */
+function historyCloseBatchKey(item) {
+  const batchId = String(item?.closeBatchId || '').trim();
+  if (batchId) return `batch:${batchId}`;
+  /* v9.43-এর আগের history-তে batch ID নেই; একই Close-এর closedAt এক ছিল। */
+  const closedAt = String(item?.closedAt || '').trim();
+  return closedAt ? `closed:${closedAt}` : '';
+}
+function latestUndoableClose() {
+  const visible = state.history.filter((item) => canEditHistoryEntry(item) && historyCloseBatchKey(item));
+  if (!visible.length) return null;
+  /* Offline/অন্য ডিভাইসের sync-এ array order বদলাতে পারে; প্রকৃত closedAt-ই latest নির্ধারণ করে। */
+  const first = visible.reduce((latest, item) => {
+    if (!latest) return item;
+    const itemTime = Date.parse(String(item.closedAt || '')) || 0;
+    const latestTime = Date.parse(String(latest.closedAt || '')) || 0;
+    return itemTime > latestTime ? item : latest;
+  }, null);
+  const key = historyCloseBatchKey(first);
+  return {
+    key,
+    entries: visible.filter((item) => historyCloseBatchKey(item) === key),
+    closeDate: String(first.closeDate || first.date || '').slice(0, 10),
+    closedAt: String(first.closedAt || ''),
+  };
+}
+
 /* ---------- দিনের হিসাব ক্লোজ: এন্ট্রি তারিখভিত্তিক স্থায়ী খাতায় জমা ---------- */
 async function closeTodayAccount() {
   ensureEntryIds();
@@ -2872,6 +2907,7 @@ async function closeTodayAccount() {
   const closing = state.todayRows.filter((item) => effectiveRole() === 'admin' || entryVisibleToIdentity(item));
   if (!closing.length) { toast('হিসাব ক্লোজ করার মতো আপনার এন্ট্রি নেই।'); return; }
   const closedAt = new Date().toISOString();
+  const closeBatchId = `close-${uid()}`;
   const closeDate = localDateInputValue();
   const total = closing.reduce((sum, item) => sum + num(item.total), 0);
   if (!window.confirm(`${fmt(closing.length)}টি এন্ট্রি (মোট ৳ ${fmtMoney(total)}) হিসাব ক্লোজ করে তারিখভিত্তিক খাতায় জমা করবেন?\n\nকিস্তির আদায় অপরিবর্তিত থাকবে — শুধু Today পেজের তালিকা থেকে এই এন্ট্রিগুলো যাবে।`)) return;
@@ -2882,6 +2918,7 @@ async function closeTodayAccount() {
     date: String(item.date || closeDate).slice(0, 10),
     closeDate,
     closedAt,
+    closeBatchId,
     kind: isMonthlyEntry(item) ? 'monthly' : 'other',
     memberCode: String(item.memberCode ?? ''),
     centerCode: String(item.centerCode ?? ''),
@@ -2911,6 +2948,72 @@ async function closeTodayAccount() {
   } catch (e) {
     state.todayRows = oldRows; state.history = oldHistory;
     renderToday(); renderHistory(); toast('⚠️ ক্লোজ সিঙ্ক হয়নি: ' + e.message, true);
+  }
+}
+
+/* শেষ Close-এর বিপরীত কাজ: একই ID-এর entries History → Today।
+   ইচ্ছাকৃতভাবে কিস্তির Actual/Archive ছোঁয়া হয় না—Close-এও সেগুলো বদলায়নি।
+   Server merge-এ todayUpserts + historyRemoveIds একই ID/loan হলে delta=0 থাকে। */
+async function undoTodayAccountClose() {
+  ensureEntryIds();
+  if (!canCollect()) { toast('Manager শুধু ডেটা দেখতে পারবেন।', true); return false; }
+  const batch = latestUndoableClose();
+  if (!batch?.entries.length) { toast('আনডো করার মতো ক্লোজ করা হিসাব নেই।'); return false; }
+  const entries = batch.entries;
+  const total = roundMoney(entries.reduce((sum, item) => sum + num(item.total), 0));
+  const dateNote = batch.closeDate ? ` (${shortDate(batch.closeDate)})` : '';
+  if (!window.confirm(`শেষ হিসাব ক্লোজ${dateNote} আনডো করবেন?\n\n${fmt(entries.length)}টি এন্ট্রি (মোট ৳ ${fmtMoney(total)}) Today All Collection-এ ফিরবে।\n\nকিস্তির আদায় অপরিবর্তিত থাকবে।`)) return false;
+
+  const undoIds = new Set(entries.map((item) => String(item.id)));
+  const previousToday = state.todayRows.map((item) => ({ ...item }));
+  const previousHistory = state.history.map((item) => ({ ...item }));
+  const restored = entries.map((item) => {
+    const copy = { ...item };
+    delete copy.closeBatchId;
+    delete copy.closeDate;
+    delete copy.closedAt;
+    delete copy.kind;
+    /* History edit-এর পর Undo হলে পুরোনো appliedLoan ফিরে আসলে পরবর্তী Today
+       edit/delete ভুল অঙ্ক বিয়োগ করতে পারে। Actual না বদলে শুধু baseline metadata
+       বর্তমান entry/linked installment-এর সঙ্গে মিলিয়ে নিই। */
+    const d = state.detect;
+    let rowIndex = findRowByInstallmentKey(copy.installmentKey);
+    if (rowIndex < 0) rowIndex = findInstallmentRowForMember(copy.memberCode);
+    if (rowIndex >= 0 && d.actual >= 0) {
+      const row = state.rows[rowIndex];
+      const appliedLoan = roundMoney(num(copy.loan));
+      const currentActual = roundMoney(num(row[d.actual]));
+      copy.appliedLoan = appliedLoan;
+      copy.prevActual = String(roundMoney(Math.max(0, currentActual - appliedLoan)));
+      if (d.paidDate >= 0) {
+        const currentPaidDate = String(row[d.paidDate] || '');
+        copy.appliedPaidDate = appliedLoan > 0 ? currentPaidDate : '';
+        copy.prevPaidDate = num(copy.prevActual) > 0 ? currentPaidDate : '';
+      }
+    } else {
+      copy.appliedLoan = 0;
+      copy.appliedPaidDate = '';
+      copy.prevPaidDate = '';
+    }
+    return copy;
+  });
+  state.history = state.history.filter((item) => !undoIds.has(String(item.id)));
+  state.todayRows = [...restored, ...state.todayRows.filter((item) => !undoIds.has(String(item.id)))];
+  renderToday(); renderHistory(); updateTodayEntryNote();
+  try {
+    const result = await persistRows({ background: true });
+    toast(result?.offline
+      ? `📴 ${fmt(entries.length)}টি এন্ট্রি Today-তে ফেরানো হয়েছে—online এলে sync হবে`
+      : result?.background
+        ? `↩️ ${fmt(entries.length)}টি এন্ট্রি Today-তে ফিরেছে · Neon sync চলছে`
+        : `↩️ হিসাব ক্লোজ আনডো হয়েছে—${fmt(entries.length)}টি এন্ট্রি ৳ ${fmtMoney(total)} Today-তে ফিরেছে`);
+    return true;
+  } catch (error) {
+    state.todayRows = previousToday;
+    state.history = previousHistory;
+    renderToday(); renderHistory(); updateTodayEntryNote();
+    toast('⚠️ আনডো সিঙ্ক হয়নি: ' + error.message, true);
+    return false;
   }
 }
 
@@ -3856,6 +3959,8 @@ function bindEvents() {
   });
   // ✔️ হিসাব ক্লোজ — আজকের সব এন্ট্রি তারিখভিত্তিক স্থায়ী খাতায় জমা হয় (কিস্তির অঙ্ক অপরিবর্তিত)
   $('#btn-close-today').addEventListener('click', closeTodayAccount);
+  // ↩️ আনডো — শেষ Close batch-এর entries একই ID-তে Today-তে ফেরায়।
+  $('#btn-undo-close')?.addEventListener('click', undoTodayAccountClose);
   $('#history-date').addEventListener('change', renderHistory);
   $('#history-list')?.addEventListener('click', (e) => {
     const editBtn = e.target.closest('[data-edit-history]');

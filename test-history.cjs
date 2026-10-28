@@ -65,6 +65,7 @@ w.eval(fs.readFileSync('app.js', 'utf8') + `
 window.__addTodayRow = addTodayRow;
 window.__fillTodayMember = fillTodayMember;
 window.__closeTodayAccount = closeTodayAccount;
+window.__undoTodayAccountClose = undoTodayAccountClose;
 window.__renderHistory = renderHistory;
 window.__flush = flushOutbox;
 `);
@@ -90,6 +91,15 @@ setTimeout(async () => {
     try { await fn(); results.push(`✅ ${name}`); }
     catch (e) { results.push(`❌ ${name} → ${e.message}`); process.exitCode = 1; }
   };
+
+  await check('হিসাব ক্লোজ + আনডো হিসাবের খাতার ঠিক আগে', async () => {
+    const bar = $('.today-close-bar');
+    assert(bar, 'Close bar নেই');
+    assert.strictEqual(bar.nextElementSibling?.id, 'history-card', 'Close bar খাতার আগে নেই');
+    assert(bar.querySelector('#btn-close-today'), 'Close button নেই');
+    assert(bar.querySelector('#btn-undo-close'), 'Undo button নেই');
+    assert.strictEqual($('#btn-undo-close').disabled, true, 'খালি history-তে Undo enabled');
+  });
 
   await check('মাসিক আদায় → আংশিক কিস্তিতে যায়', async () => {
     await addEntry('0123', { loan: 400 });
@@ -129,10 +139,35 @@ setTimeout(async () => {
     await w.__flush();
     assert.strictEqual(w.__state.todayRows.length, 0, 'ক্লোজের পর তালিকা খালি হয়নি');
     assert.strictEqual(w.__state.history.length, 4, `খাতায় এন্ট্রি ${w.__state.history.length}`);
+    assert(w.__state.history.every((h) => h.closeBatchId), 'Close batch ID সংরক্ষিত হয়নি');
+    assert.strictEqual(new Set(w.__state.history.map((h) => h.closeBatchId)).size, 1, 'একই Close-এর batch ID আলাদা');
+    assert.strictEqual($('#btn-undo-close').disabled, false, 'Close-এর পর Undo enabled নয়');
     assert.strictEqual(w.__state.history.filter((h) => h.kind === 'monthly').length, 2, 'মাসিক গণনা ভুল');
     assert.strictEqual(w.__state.history.filter((h) => h.kind === 'other').length, 2, 'অন্যান্য গণনা ভুল');
     assert.strictEqual(String(w.__state.rows[0][5]), '1000', 'ক্লোজে কিস্তির অঙ্ক বদলে গেছে');
     assert(saved && saved.history.length === 4, 'Neon-এ history সেভ হয়নি');
+  });
+
+  await check('শেষ হিসাব ক্লোজ Undo একই ID-তে Today-তে ফেরায়, কিস্তির অঙ্ক অপরিবর্তিত', async () => {
+    const closedIds = w.__state.history.map((h) => String(h.id)).sort();
+    await w.__undoTodayAccountClose();
+    await w.__flush();
+    assert.strictEqual(w.__state.todayRows.length, 4, 'Undo-এর পর Today তালিকা পূরণ হয়নি');
+    assert.strictEqual(w.__state.history.length, 0, 'Undo-এর পর history খালি হয়নি');
+    assert.deepStrictEqual(w.__state.todayRows.map((item) => String(item.id)).sort(), closedIds, 'Entry ID বদলে গেছে');
+    assert(w.__state.todayRows.every((item) => !item.closeBatchId && !item.closedAt && !item.closeDate && !item.kind), 'Close metadata Today-তে রয়ে গেছে');
+    assert.strictEqual(String(w.__state.rows[0][5]), '1000', 'Undo-এ কিস্তির Actual বদলে গেছে');
+    assert(saved && saved.history.length === 0 && saved.dailyData.todayRows.length === 4, 'Undo Neon-এ sync হয়নি');
+    assert.strictEqual($('#btn-undo-close').disabled, true, 'সব Undo শেষে button disabled নয়');
+  });
+
+  await check('Undo-এর পর আবার Close করলে একই হিসাব খাতায় জমা হয়, Actual দ্বিগুণ হয় না', async () => {
+    await w.__closeTodayAccount();
+    await w.__flush();
+    assert.strictEqual(w.__state.todayRows.length, 0);
+    assert.strictEqual(w.__state.history.length, 4);
+    assert.strictEqual(String(w.__state.rows[0][5]), '1000', 'পুনরায় Close-এ Actual বদলে গেছে');
+    assert(saved && saved.history.length === 4 && saved.dailyData.todayRows.length === 0, 'পুনরায় Close sync হয়নি');
   });
 
   await check('খাতার টেবিলে এন্ট্রি ও ধরন দেখায়', () => {

@@ -47,6 +47,17 @@ check('Today→history close-এ actual দ্বিগুণ হয় না',
   assert.strictEqual(doc.rows[0][7], '60');
 });
 
+check('History→Today Undo-তেও actual অপরিবর্তিত; পরবর্তী Close-এও দ্বিগুণ হয় না', () => {
+  doc = applyPatch(doc, { historyRemoveIds: ['a'], todayUpserts: [entry('a', '001', 60)] });
+  assert.strictEqual(doc.dailyData.todayRows.length, 2);
+  assert.strictEqual(doc.history.length, 0);
+  assert.strictEqual(doc.rows[0][7], '60', 'Undo-এ actual বদলেছে');
+  doc = applyPatch(doc, { todayRemoveIds: ['a'], historyUpserts: [entry('a', '001', 60, { closedAt: '2026-10-24T02:05:00Z', closeBatchId: 'close-test-2' })] });
+  assert.strictEqual(doc.dailyData.todayRows.length, 1);
+  assert.strictEqual(doc.history.length, 1);
+  assert.strictEqual(doc.rows[0][7], '60', 'পুনরায় Close-এ actual বদলেছে');
+});
+
 check('History delete-এ আদায় ও আদায়ের তারিখ ফিরে যায়', () => {
   doc = applyPatch(doc, { historyRemoveIds: ['a'] });
   assert.strictEqual(doc.history.length, 0);

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9.43">
+<link rel="stylesheet" href="styles.css?v=9.44">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f766e">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
@@ -346,6 +346,15 @@
         </div>
       </div>
 
+      <!-- Close/Undo হিসাবের খাতার ঠিক আগে; Undo শেষ Close batch-কে Today-তে ফেরায়। -->
+      <div class="today-close-bar" data-collection-write>
+        <div class="today-close-buttons">
+          <button class="btn primary today-close-btn" id="btn-close-today" type="button" title="আজকের সব এন্ট্রি তারিখভিত্তিক স্থায়ী খাতায় জমা করুন">✔️ হিসাব ক্লোজ</button>
+          <button class="btn ghost today-undo-btn" id="btn-undo-close" type="button" disabled title="শেষ হিসাব ক্লোজ আনডো করে এন্ট্রি Today-তে ফেরান">↩️ আনডো</button>
+        </div>
+        <span class="today-close-note">আজকের সব এন্ট্রি তারিখভিত্তিক খাতায় জমা হবে · আনডো করলে শেষ ক্লোজের এন্ট্রি Today-তে ফিরবে।</span>
+      </div>
+
       <!-- ============ হিসাবের খাতা (ক্লোজ করা হিসাব — কখনো হারায় না) ============ -->
       <div class="history-card table-card" id="history-card">
         <div class="history-head">
@@ -368,10 +377,6 @@
         <div id="history-empty" class="empty">এখনো কোনো হিসাব ক্লোজ করা হয়নি — "✔️ হিসাব ক্লোজ" চাপলে আজকের এন্ট্রি এখানে জমা হবে।</div>
       </div>
 
-      <div class="today-close-bar" data-collection-write>
-        <button class="btn primary today-close-btn" id="btn-close-today" type="button" title="আজকের সব এন্ট্রি তারিখভিত্তিক স্থায়ী খাতায় জমা করুন">✔️ হিসাব ক্লোজ</button>
-        <span class="today-close-note">আজকের সব এন্ট্রি তারিখভিত্তিক খাতায় জমা হবে।</span>
-      </div>
     </section>
   </main>
 
@@ -512,9 +517,9 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="shared/csv-rules.js?v=9.43"></script>
-<script src="shared/xls-reader.js?v=9.43"></script>
-<script src="shared/active-members.js?v=9.43"></script>
-<script src="app.js?v=9.43"></script>
+<script src="shared/csv-rules.js?v=9.44"></script>
+<script src="shared/xls-reader.js?v=9.44"></script>
+<script src="shared/active-members.js?v=9.44"></script>
+<script src="app.js?v=9.44"></script>
 </body>
 </html>

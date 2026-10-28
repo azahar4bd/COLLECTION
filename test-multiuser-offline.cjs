@@ -71,6 +71,8 @@ window.__canUpdate = canUpdateDatabase;
 window.__showGate = showIdentityGate;
 window.__persist = persistRows;
 window.__flush = flushOutbox;
+window.__close = closeTodayAccount;
+window.__undo = undoTodayAccountClose;
 `);
 const $ = (selector) => w.document.querySelector(selector);
 const state = w.__state;
@@ -184,6 +186,40 @@ setTimeout(async () => {
     assert.strictEqual(state.todayRows.length, 2);
     assert.strictEqual(w.__filteredRows().length, 2); // Alice's two installment rows
     assert.strictEqual(w.__filteredHistory().length, 0);
+  });
+
+  await check('Staff Close শুধু নিজের entry খাতায় নেয়, অন্য Staff-এর Today entry থাকে', async () => {
+    await w.__close();
+    await w.__flush();
+    assert.deepStrictEqual(state.todayRows.map((item) => item.id), ['bob-remote']);
+    assert.strictEqual(state.history.length, 1);
+    assert.strictEqual(state.history[0].ownerStaff, 'Alice');
+    assert.strictEqual(remote.dailyData.todayRows.length, 1);
+    assert.strictEqual(remote.history.length, 1);
+    assert.strictEqual(remote.rows[0][7], '35');
+    assert.strictEqual(remote.rows[1][7], '70');
+  });
+
+  await check('Manager শেষ Close Undo করতে পারে না', async () => {
+    await identity('manager');
+    assert.strictEqual($('#btn-undo-close').disabled, true);
+    await w.__undo();
+    assert.strictEqual(state.history.length, 1);
+    assert.strictEqual(state.todayRows.length, 1);
+    assert.strictEqual(remote.history.length, 1);
+    assert.strictEqual(remote.dailyData.todayRows.length, 1);
+  });
+
+  await check('Staff নিজের শেষ Close Undo করে; অন্য Staff-এর entry ও actual অপরিবর্তিত', async () => {
+    await identity('staff', 'Alice');
+    await w.__undo();
+    await w.__flush();
+    assert.strictEqual(state.todayRows.length, 2);
+    assert.strictEqual(state.history.length, 0);
+    assert.strictEqual(remote.dailyData.todayRows.length, 2);
+    assert.strictEqual(remote.history.length, 0);
+    assert.strictEqual(remote.rows[0][7], '35');
+    assert.strictEqual(remote.rows[1][7], '70');
   });
 
   await check('Admin সব device-এর merged entry দেখে এবং staff-এর foreign entry-তে staff edit guard কাজ করে', async () => {

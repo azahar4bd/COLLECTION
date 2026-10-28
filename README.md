@@ -4,6 +4,7 @@ CSV আপলোড করে কিস্তির ডাটা **বাকী 
 
 ## ফিচার
 
+- **↩️ হিসাব ক্লোজ + আনডো খাতার আগে** (v9.44) — Today All Collection-এ **হিসাবের খাতার ঠিক আগে** Close ও Undo button। Undo শেষ Close batch-এর entries একই ID-তে History থেকে Today-তে ফেরায়; installment Actual, paid archive ও collections অপরিবর্তিত থাকে, Neon-এ ID-based sync হয়। Staff নিজের entries, Admin সব entries Undo করতে পারে; Manager read-only।
 - **📌 প্রতিশ্রুতি = বাকী কিস্তির subset** (v9.43) — আজকের `nextDate` থাকলেও **পরিশোধিত বা আংশিক** কিস্তি আর আজ প্রতিশ্রুতি তালিকায় আসে না। একই `groups.due` source ব্যবহার হয়, তাই বাকী কিস্তিতে নেই এমন নাম প্রতিশ্রুতিতে দেখা যায় না; saved followup/note মুছে যায় না।
 - **⚡ Active-only compact memberDB** (v9.42) — marked **② সদস্য তালিকা** upload সরানো হয়েছে। Balance-এ nonzero loan/savings/DPS অথবা current installment list-এ থাকা সদস্যদের পুরোনো directory থেকে শুধু **কেন্দ্র, Member No, নাম, মোবাইল, অভিভাবক** রাখা হয়; inactive/zero-only bulk row বাদ। Current fixture-এ **৫,০৮১ → ৯১৪** contacts। Balance/installment, Today, history, collections, paid archive ও sync data এই pruning-এ বদলায় না। Active source load না হলে সতর্কতার জন্য directory খালি করা হয় না।
 - **💰 Installment details থেকে আদায় + Return** (v9.41) — **আজ প্রতিশ্রুতি, আজ আদায়যোগ্য, বাকী কিস্তি ও আংশিক কিস্তি** page-এর member details-এ কলের পাশে আদায় button। Click করা কিস্তির exact reference ও বাকী loan Today-তে prefill হয়; Return ঐ originating page-এ ফেরায়। Manager-এর button নেই, Staff শুধু নিজের member-এর আদায় পায়; duplicate ও installment update rules অপরিবর্তিত।
