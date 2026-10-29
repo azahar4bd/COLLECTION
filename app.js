@@ -106,7 +106,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.46';
+const APP_VER = 'v9.47';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -1929,7 +1929,7 @@ function dailyAccountKey(item) {
   const digits = normalizedDigits(rawCode);
   return digits ? `id:${digits.replace(/^0+/,'')}` : `name:${norm(item.memberName)}:${norm(item.centerCode)}`;
 }
-function fillTodayMember({ canonicalizeInput = true, allowSuffix = true } = {}) {
+function fillTodayMember({ allowSuffix = true } = {}) {
   state.todayInstallmentKey = '';
   const input = $('#today-member-code');
   const code = input.value.trim();
@@ -1967,7 +1967,8 @@ function fillTodayMember({ canonicalizeInput = true, allowSuffix = true } = {}) 
   const codeIndex = memberCol(state.memberDBHeaders, 'code');
   if (codeIndex >= 0) {
     state.todayRawMember = String(row[codeIndex] || '').trim();
-    if (canonicalizeInput) input.value = displayMemberCode(row[codeIndex]);
+    /* Member code input কখনো rewrite নয়—typing, change বা blur-এও
+       ব্যবহারকারীর লেখা code অক্ষরে-অক্ষরে অপরিবর্তিত থাকে। */
   }
   autofillTodayLoan(state.todayRawMember || code);
   updateTodayEntryNote();
@@ -2133,8 +2134,9 @@ function selectTodaySuggestion(index, kind) {
   const row = state.memberDB[Number(index)];
   const codeIndex = memberCol(state.memberDBHeaders, 'code');
   if (!row || codeIndex < 0) return;
-  // প্রথমে মূল কোড দিয়ে নির্দিষ্ট সদস্য বেছে নিই; fillTodayMember পরে UI-তে শেষ ৪ সংখ্যা দেখাবে।
-  $('#today-member-code').value = String(row[codeIndex] || '').trim();
+  /* ব্যবহারকারী স্পষ্টভাবে suggestion বেছে নিলেই শুধু code বসে; সেটিও
+     suggestion-এ দেখানো সংক্ষিপ্ত code—fillTodayMember আর input বদলায় না। */
+  $('#today-member-code').value = displayMemberCode(row[codeIndex]);
   state.todayRawMember = ''; state.todayRawCenter = '';
   fillTodayMember();
   const input = $(kind === 'name' ? '#today-member-name' : '#today-member-code');
@@ -4178,10 +4180,9 @@ function bindEvents() {
       input.closest('.field')?.classList.remove('field-focus-active');
     });
   }
-  /* Typing-এর মাঝে input কখনো rewrite করব না এবং তিন সংখ্যার partial suffix
-     দিয়ে সদস্য ধরব না; পূর্ণ code মিললে নাম/center তখনই দেখাবে।
-     change/blur-এ পুরোনো short-code canonicalization ও suffix lookup অপরিবর্তিত। */
-  $('#today-member-code').addEventListener('input', () => fillTodayMember({ canonicalizeInput: false, allowSuffix: false }));
+  /* Member code ঘরে auto লেখা বা rewrite নেই। Typing-এ তিন সংখ্যার partial
+     suffix ধরা হয় না; change/blur-এও ব্যবহারকারীর লেখা code অপরিবর্তিত থাকে। */
+  $('#today-member-code').addEventListener('input', () => fillTodayMember({ allowSuffix: false }));
   $('#today-member-code').addEventListener('change', () => fillTodayMember());
   // লোন/সঞ্চয়/DPS/মোট—যেকোনো তিনটি পূরণ হলে চতুর্থটি অটো; স্থিতি কার্ডও লাইভ হিসাব হয়।
   TODAY_AMOUNT_KEYS.forEach((key) => {

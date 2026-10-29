@@ -68,15 +68,22 @@ setTimeout(() => {
     assert.strictEqual($('#today-center-code').value, '');
   });
 
-  check('পুরো মূল code টাইপ নিরাপদ; change-এ সংক্ষিপ্ত code ও সঠিক সদস্য থাকে', () => {
+  check('পুরো মূল code টাইপ ও change-এও এক অক্ষরও বদলায় না', () => {
     w.__clear();
     type('001405254');
     assert.strictEqual(input().value, '001405254');
     assert.strictEqual($('#today-member-name').value, 'Josna Adhikari');
     input().dispatchEvent(new w.Event('change', { bubbles: true }));
-    assert.strictEqual(input().value, '5254');
+    assert.strictEqual(input().value, '001405254');
     assert.strictEqual(w.__state.todayRawMember, '001405254');
     assert.strictEqual($('#today-member-name').value, 'Josna Adhikari');
+  });
+
+  check('আংশিক code-এর পরে change/blur হলেও auto code বসে না', () => {
+    w.__clear();
+    type('254');
+    input().dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert.strictEqual(input().value, '254');
   });
 
   console.log(results.join('\n'));
