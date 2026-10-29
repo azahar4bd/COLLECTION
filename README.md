@@ -4,6 +4,7 @@ CSV আপলোড করে কিস্তির ডাটা **বাকী 
 
 ## ফিচার
 
+- **⌨️ Member code টাইপ নিরাপদ** (v9.46) — Today-এর মেম্বার কোড ঘরে টাইপ চলাকালে partial suffix match আর input বদলায় না; পূর্ণ code মিললে নাম/সেন্টার আসে, change/blur-এ মূল code সংক্ষিপ্ত রূপে দেখায়। আগের matched code-এর পরে অতিরিক্ত সংখ্যা লিখলে পুরোনো নাম/center লেগে থাকে না। Suggestion, সঠিক সদস্য নির্বাচন ও saved financial data অপরিবর্তিত।
 - **📚 Close batch-এ পুরো Today format** (v9.45) — হিসাবের খাতায় প্রতিটি Close batch আলাদা card-এ Today-এর মতোই **মাসিক আদায়, অন্যান্য আদায়, center subtotal, staff-wise tables, সকল স্টাফ সর্বমোট ও মাসিক+অন্যান্য summary** দেখায়। Entry row-এ একই columns ও edit/delete; তারিখ filter, roles, Undo এবং Neon data অপরিবর্তিত।
 - **↩️ হিসাব ক্লোজ + আনডো খাতার আগে** (v9.44) — Today All Collection-এ **হিসাবের খাতার ঠিক আগে** Close ও Undo button। Undo শেষ Close batch-এর entries একই ID-তে History থেকে Today-তে ফেরায়; installment Actual, paid archive ও collections অপরিবর্তিত থাকে, Neon-এ ID-based sync হয়। Staff নিজের entries, Admin সব entries Undo করতে পারে; Manager read-only।
 - **📌 প্রতিশ্রুতি = বাকী কিস্তির subset** (v9.43) — আজকের `nextDate` থাকলেও **পরিশোধিত বা আংশিক** কিস্তি আর আজ প্রতিশ্রুতি তালিকায় আসে না। একই `groups.due` source ব্যবহার হয়, তাই বাকী কিস্তিতে নেই এমন নাম প্রতিশ্রুতিতে দেখা যায় না; saved followup/note মুছে যায় না।
