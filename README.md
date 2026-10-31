@@ -4,6 +4,7 @@ CSV আপলোড করে কিস্তির ডাটা **বাকী 
 
 ## ফিচার
 
+- **🔢 সব হিসাবের সংখ্যা পূর্ণসংখ্যা** (v9.49) — টাকা, total, subtotal, details, toast ও count-এ দশমিক দেখানো হয় না; `12.49 → 12`, `12.50/12.99 → 13`। Amount ও refresh input integer-only; পুরোনো decimal draft/edit-ও integer দেখায়। মূল `num`/`roundMoney`, তিন-ঘরের মোট auto-calculation, stored Neon data, member code, তারিখ ও account identifier-এর নিয়ম অপরিবর্তিত।
 - **👥 নিচে ২টি প্রধান পেজ** (v9.48) — fixed bottom navigation-এ **Member List** ও **Today Collection**। Member List-এর dropdown থেকে আজ প্রতিশ্রুতি, আজ আদায়যোগ্য, বাকী, আদায়, আংশিক, অন্যান্য সদস্য ও স্থায়ী আদায় আর্কাইভ নির্বাচন করা যায়; সব তালিকা পরপর দেখার option-ও আছে। শেষ তালিকা মনে থাকে, Today-এর form/entries/Close/Undo/হিসাবের খাতা এবং details→আদায়→Return অপরিবর্তিত।
 - **⌨️ Member code ঘরে auto লেখা নেই** (v9.47) — Today-এর মেম্বার কোড ঘরে typing, change বা blur-এ input আর rewrite হয় না; ব্যবহারকারীর লেখা code অক্ষরে-অক্ষরে থাকে। স্পষ্টভাবে suggestion/details/edit বেছে নিলে prefill আগের মতোই কাজ করে। মোট ঘরের auto-হিসাব ও financial rules অপরিবর্তিত।
 - **⌨️ Member code টাইপ নিরাপদ** (v9.46) — Today-এর মেম্বার কোড ঘরে টাইপ চলাকালে partial suffix match আর input বদলায় না; পূর্ণ code মিললে নাম/সেন্টার আসে, change/blur-এ মূল code সংক্ষিপ্ত রূপে দেখায়। আগের matched code-এর পরে অতিরিক্ত সংখ্যা লিখলে পুরোনো নাম/center লেগে থাকে না। Suggestion, সঠিক সদস্য নির্বাচন ও saved financial data অপরিবর্তিত।

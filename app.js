@@ -27,8 +27,16 @@ const num = (v) => {
   const rounded = Math.round(n * 100) / 100;
   return Number.isFinite(rounded) ? rounded : 0;
 };
-const fmt = (n) => Number(n || 0).toLocaleString('bn-BD', { maximumFractionDigits: 2 });
-const fmtMoney = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+// UI-এর প্রদর্শিত সংখ্যা সবসময় নিকটতম পূর্ণসংখ্যা: 12.49 → 12, 12.50/12.99 → 13।
+// মূল num/roundMoney ও মোট auto-calculation-এর হিসাব অপরিবর্তিত; এটি শুধু display/input নিয়ম।
+const wholeNumber = (value) => {
+  const direct = Number(value);
+  const numeric = Number.isFinite(direct) ? direct : num(value);
+  const rounded = Math.round(numeric);
+  return Number.isFinite(rounded) ? rounded : 0;
+};
+const fmt = (n) => wholeNumber(n).toLocaleString('bn-BD', { maximumFractionDigits: 0 });
+const fmtMoney = (n) => wholeNumber(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
 // UI-তে শুধু শেষ ৪টি মেম্বার সংখ্যা ও শেষ ৩টি সেন্টার সংখ্যা দেখাই; সংরক্ষিত মূল কোড অপরিবর্তিত থাকে।
 const trailingDigits = (value) => toEn(String(value ?? '').trim()).match(/(\d+)$/)?.[1] || '';
 const displayMemberCode = (value) => {
@@ -106,7 +114,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.48';
+const APP_VER = 'v9.49';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -914,6 +922,7 @@ function restoreTodayDraft() {
   set('today-member-code', draft.memberCode); set('today-center-code', draft.centerCode);
   set('today-member-name', draft.memberName); set('today-loan', draft.loan);
   set('today-savings', draft.savings); set('today-dps', draft.dps); set('today-total', draft.total);
+  normalizeTodayAmountInputs();
   if (TODAY_AMOUNT_KEYS.includes(draft.autoField)) {
     const autoInput = todayAmountInput(draft.autoField);
     if (autoInput) { autoInput.dataset.autoCalc = '1'; autoInput.classList.add('auto-calculated'); }
@@ -1357,8 +1366,18 @@ const roundMoney = (value) => {
    তাই উৎসের কোনো মান বদলালে সেটিই আবার হিসাব হয়—ব্যবহারকারীর হাতে লেখা মান নয়। */
 const TODAY_AMOUNT_KEYS = ['loan', 'savings', 'dps', 'total'];
 const TODAY_AMOUNT_LABELS = { loan: 'লোন', savings: 'সঞ্চয়', dps: 'DPS', total: 'মোট' };
-const TODAY_AMOUNT_HINT = 'লোন, সঞ্চয়, DPS ও মোট—যেকোনো ৩টি ঘর পূরণ করলে বাকি ঘরটি অটো আসবে।';
+const TODAY_AMOUNT_HINT = 'শুধু পূর্ণসংখ্যা লিখুন—লোন, সঞ্চয়, DPS ও মোটের যেকোনো ৩টি ঘর পূরণ করলে বাকি ঘরটি অটো আসবে।';
 const todayAmountInput = (key) => $('#today-' + key);
+function normalizeTodayAmountInputs() {
+  TODAY_AMOUNT_KEYS.forEach((key) => {
+    const input = todayAmountInput(key);
+    if (!input) return;
+    const raw = String(input.value ?? '').trim();
+    if (!raw) return;
+    const integer = String(wholeNumber(raw));
+    if (raw !== integer) input.value = integer;
+  });
+}
 function setTodayAmountNote(message = TODAY_AMOUNT_HINT, isError = false) {
   const note = $('#today-amount-note');
   if (!note) return;
@@ -1377,6 +1396,7 @@ function resetTodayAmountAuto() {
 function autoCalculateTodayAmounts(changedKey = '') {
   const fields = Object.fromEntries(TODAY_AMOUNT_KEYS.map((key) => [key, todayAmountInput(key)]));
   if (TODAY_AMOUNT_KEYS.some((key) => !fields[key])) return '';
+  normalizeTodayAmountInputs();
   const clearedAutoKey = changedKey && fields[changedKey]?.dataset.autoCalc === '1'
     && String(fields[changedKey].value || '').trim() === '' ? changedKey : '';
   if (changedKey && fields[changedKey]) {
@@ -1471,7 +1491,15 @@ function formatMemberDetails(entries, codeColumn = -1) {
         if (namePart) return [{ ...item, value: namePart }];
         return [{ ...item, value: displayCenterCode(codePart) }];
       }
-      const value = index === codeColumn || looksLikeCode ? displayMemberCode(item.value) : item.value;
+      const raw = String(item.value ?? '').trim();
+      const numericText = toEn(raw).replace(/[৳,\sTk]/gi, '');
+      const hasFraction = /^[+-]?(?:\d+\.\d*|\.\d+)$/.test(numericText);
+      const isIdentifier = looksLikeCode || heading.includes('code') || heading.includes('account')
+        || heading.includes('mobile') || heading.includes('phone') || heading.includes('date')
+        || String(item.label || '').includes('তারিখ') || String(item.label || '').includes('মোবাইল');
+      const value = index === codeColumn || looksLikeCode ? displayMemberCode(item.value)
+        : hasFraction && !isIdentifier ? (/৳|Tk/i.test(raw) ? '৳ ' : '') + fmtMoney(numericText)
+        : item.value;
       return [{ ...item, value }];
     });
 }
@@ -2874,6 +2902,7 @@ function startEditToday(index) {
   set('#today-savings', item.savings ?? 0);
   set('#today-dps', item.dps ?? 0);
   set('#today-total', item.total ?? roundMoney(num(item.loan) + num(item.savings) + num(item.dps)));
+  normalizeTodayAmountInputs();
   const loanInput = $('#today-loan');
   if (loanInput) loanInput.dataset.autofill = '0';
   const totalInput = $('#today-total');
@@ -3102,6 +3131,7 @@ function fillFormFromHistory(item) {
   set('#today-savings', item.savings ?? 0);
   set('#today-dps', item.dps ?? 0);
   set('#today-total', item.total ?? roundMoney(num(item.loan) + num(item.savings) + num(item.dps)));
+  normalizeTodayAmountInputs();
   const loanInput = $('#today-loan');
   if (loanInput) loanInput.dataset.autofill = '0';
   const totalInput = $('#today-total');
@@ -3937,13 +3967,13 @@ function showSetup() {
   if (!canUpdateDatabase()) { toast('সেটিংস ও database control শুধু Admin-এর জন্য।', true); return; }
   $('#setup-screen').classList.remove('hidden');
   $('#app').classList.add('hidden');
-  $('#set-refresh').value = settings.refreshSec;
+  $('#set-refresh').value = wholeNumber(settings.refreshSec);
   $('#set-autorefresh').checked = settings.autoRefresh;
 }
 
 function readSetupForm() {
   settings.mode = 'neon';
-  settings.refreshSec = Math.max(8, Math.min(3600, num($('#set-refresh').value) || 10));
+  settings.refreshSec = Math.max(8, Math.min(3600, wholeNumber($('#set-refresh').value) || 10));
   settings.autoRefresh = $('#set-autorefresh').checked;
 }
 
@@ -4182,12 +4212,20 @@ function bindEvents() {
   // লোন/সঞ্চয়/DPS/মোট—যেকোনো তিনটি পূরণ হলে চতুর্থটি অটো; স্থিতি কার্ডও লাইভ হিসাব হয়।
   TODAY_AMOUNT_KEYS.forEach((key) => {
     const sel = '#today-' + key;
-    $(sel).addEventListener('input', () => {
-      if (key === 'loan') $(sel).dataset.autofill = '0';
+    const input = $(sel);
+    input.addEventListener('beforeinput', (event) => {
+      // হাতে decimal point চাপলে সেটিই আটকে যায়; paste করলে input-এর সময় integer হয়।
+      if (event.inputType !== 'insertFromPaste' && String(event.data || '').includes('.')) {
+        event.preventDefault();
+        setTodayAmountNote('⚠️ দশমিক নয়—শুধু পূর্ণসংখ্যা লিখুন।', true);
+      }
+    });
+    input.addEventListener('input', () => {
+      if (key === 'loan') input.dataset.autofill = '0';
       autoCalculateTodayAmounts(key);
       renderTodayBalanceCard();
     });
-    $(sel).addEventListener('change', renderTodayBalanceCard);
+    input.addEventListener('change', renderTodayBalanceCard);
   });
   $('#today-member-name').addEventListener('change', fillTodayMemberByName);
   bindTodaySuggestionInput('code');

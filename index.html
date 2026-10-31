@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9.48">
+<link rel="stylesheet" href="styles.css?v=9.49">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f766e">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
@@ -26,7 +26,7 @@
     <div id="shared-settings" class="mode-settings">
       <div id="shared-refresh-wrap" class="field">
         <label for="set-refresh">রিফ্রেশ ইন্টারভাল (সেকেন্ড)</label>
-        <input type="number" id="set-refresh" value="10" min="8" max="3600">
+        <input type="number" id="set-refresh" value="10" min="8" max="3600" step="1" inputmode="numeric" pattern="[0-9]*">
       </div>
       <label class="check-row">
         <input type="checkbox" id="set-autorefresh" checked>
@@ -296,17 +296,17 @@
           <datalist id="today-member-name-options"></datalist>
           <div id="today-name-suggestions" class="today-suggestions align-right hidden" role="listbox" aria-label="মেম্বার নামের সাজেশন"></div>
         </div>
-        <div class="field"><label for="today-loan">লোন</label><input id="today-loan" type="number" min="0" step="0.01" inputmode="decimal"></div>
-        <div class="field"><label for="today-savings">সঞ্চয়</label><input id="today-savings" type="number" min="0" step="0.01" inputmode="decimal"></div>
-        <div class="field"><label for="today-dps">DPS</label><input id="today-dps" type="number" min="0" step="0.01" inputmode="decimal"></div>
-        <div class="field"><label for="today-total">মোট</label><input id="today-total" type="number" min="0" step="0.01" inputmode="decimal" title="লোন, সঞ্চয়, DPS ও মোট—যেকোনো তিনটি পূরণ করলে বাকি ঘরটি অটো হিসাব হবে"></div>
+        <div class="field"><label for="today-loan">লোন</label><input id="today-loan" type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*" title="শুধু পূর্ণসংখ্যা"></div>
+        <div class="field"><label for="today-savings">সঞ্চয়</label><input id="today-savings" type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*" title="শুধু পূর্ণসংখ্যা"></div>
+        <div class="field"><label for="today-dps">DPS</label><input id="today-dps" type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*" title="শুধু পূর্ণসংখ্যা"></div>
+        <div class="field"><label for="today-total">মোট</label><input id="today-total" type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*" title="শুধু পূর্ণসংখ্যা; লোন, সঞ্চয়, DPS ও মোট—যেকোনো তিনটি পূরণ করলে বাকি ঘরটি অটো হিসাব হবে"></div>
         <div class="today-form-actions">
           <button class="btn primary today-add-btn" id="btn-add-today" type="button">＋ তালিকায় যোগ</button>
           <button class="btn danger hidden" id="btn-cancel-edit" type="button" title="এডিট বাতিল করুন">✖ বাতিল</button>
           <button class="btn ghost" id="btn-reset-today" type="button" title="শুধু এন্ট্রি ঘরগুলো ফাঁকা করে — তালিকা, কিস্তি বা খাতা কিছুই বদলায় না">↻ রিসেট</button>
         </div>
       </div>
-      <div id="today-amount-note" class="today-amount-note" aria-live="polite">লোন, সঞ্চয়, DPS ও মোট—যেকোনো ৩টি ঘর পূরণ করলে বাকি ঘরটি অটো আসবে।</div>
+      <div id="today-amount-note" class="today-amount-note" aria-live="polite">শুধু পূর্ণসংখ্যা লিখুন—লোন, সঞ্চয়, DPS ও মোটের যেকোনো ৩টি ঘর পূরণ করলে বাকি ঘরটি অটো আসবে।</div>
       <div id="today-entry-note" class="today-entry-note"></div>
       <div id="today-old-note" class="today-old-note hidden"></div>
       <div class="today-table-card table-card">
@@ -505,9 +505,9 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="shared/csv-rules.js?v=9.48"></script>
-<script src="shared/xls-reader.js?v=9.48"></script>
-<script src="shared/active-members.js?v=9.48"></script>
-<script src="app.js?v=9.48"></script>
+<script src="shared/csv-rules.js?v=9.49"></script>
+<script src="shared/xls-reader.js?v=9.49"></script>
+<script src="shared/active-members.js?v=9.49"></script>
+<script src="app.js?v=9.49"></script>
 </body>
 </html>
