@@ -106,7 +106,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.47';
+const APP_VER = 'v9.48';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -379,6 +379,7 @@ const state = {
   collections: [],      // আদায়ের পৃথক লেনদেন-তালিকা
   followups: [],        // সদস্যের প্রতিশ্রুতি ও পরবর্তী তারিখ
   activePage: 'today',
+  memberListPage: 'today-promise',
   todayReturnPage: '',
   todayInstallmentKey: '',
   memberDB: [],
@@ -3669,11 +3670,6 @@ async function applyMisFiles() {
     renderMisSlots();
   }
 }
-function closeAppMenu() {
-  const panel = $('#app-menu-panel'), button = $('#btn-app-menu');
-  panel?.classList.add('hidden');
-  if (button) { button.setAttribute('aria-expanded', 'false'); button.setAttribute('aria-label', 'মেনু খুলুন'); }
-}
 function renderActivePage() {
   if (state.activePage === 'today') {
     renderToday();
@@ -3688,6 +3684,8 @@ function showPage(page, silent = false, alreadyRendered = false) {
   const requested = String(page || 'today');
   const valid = requested === 'today' || requested === 'installments' || SECTION_KEYS.includes(requested);
   state.activePage = valid ? requested : 'today';
+  /* Today থেকে Member List-এ ফিরলে শেষ নির্বাচিত dropdown তালিকাটিই খুলবে। */
+  if (state.activePage === 'installments' || SECTION_KEYS.includes(state.activePage)) state.memberListPage = state.activePage;
   state.sectionView = SECTION_KEYS.includes(state.activePage) ? state.activePage : 'all';
   const sectionSelect = $('#section-view-filter');
   if (sectionSelect && [...sectionSelect.options].some((option) => option.value === state.sectionView)) sectionSelect.value = state.sectionView;
@@ -3703,8 +3701,12 @@ function showPage(page, silent = false, alreadyRendered = false) {
   const today = state.activePage === 'today';
   $('#installment-page').classList.toggle('hidden', today);
   $('#today-page').classList.toggle('hidden', !today);
-  $$('[data-menu-page]').forEach((button) => button.classList.toggle('active', button.dataset.menuPage === state.activePage));
-  closeAppMenu();
+  $$('[data-main-page]').forEach((button) => {
+    const active = button.dataset.mainPage === 'today' ? today : !today;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
   if (!silent) saveUiState();
 }
 
@@ -4079,17 +4081,10 @@ function bindEvents() {
   $('#btn-upload-2').addEventListener('click', openUpload);
   $('#btn-settings').addEventListener('click', showSetup);
 
-  // নিচে ডান দিকের three-line menu → আলাদা table pages
-  $('#btn-app-menu')?.addEventListener('click', (event) => {
-    event.stopPropagation();
-    const panel = $('#app-menu-panel'), button = $('#btn-app-menu');
-    const opening = panel?.classList.contains('hidden');
-    panel?.classList.toggle('hidden', !opening);
-    if (button) { button.setAttribute('aria-expanded', String(Boolean(opening))); button.setAttribute('aria-label', opening ? 'মেনু বন্ধ করুন' : 'মেনু খুলুন'); }
-  });
-  $$('[data-menu-page]').forEach((button) => button.addEventListener('click', () => showPage(button.dataset.menuPage)));
-  document.addEventListener('click', (event) => { if (!event.target.closest('.app-menu-shell')) closeAppMenu(); });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeAppMenu(); });
+  // নিচের ২টি প্রধান tab; Member List-এর শেষ নির্বাচিত dropdown page মনে থাকে।
+  $$('[data-main-page]').forEach((button) => button.addEventListener('click', () => {
+    showPage(button.dataset.mainPage === 'today' ? 'today' : (state.memberListPage || 'today-promise'));
+  }));
   $('#btn-add-today').addEventListener('click', addTodayRow);
   const cancelEditBtn = $('#btn-cancel-edit');
   if (cancelEditBtn) cancelEditBtn.addEventListener('click', () => cancelTodayEdit());

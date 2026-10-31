@@ -1,4 +1,4 @@
-/* v9.40: default Today, lazy startup, eight-page bottom-right menu. */
+/* নিচের ২টি tab: Member List dropdown + অপরিবর্তিত Today Collection; default Today ও lazy startup। */
 const fs = require('fs');
 const assert = require('assert');
 const { JSDOM } = require('jsdom');
@@ -18,14 +18,14 @@ w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListen
 w.localStorage.setItem('collectionManager.identity.v1', JSON.stringify({ role: 'admin', staff: '', label: 'Admin' }));
 w.fetch = async () => ({ ok: true, status: 200, json: async () => cloud });
 w.eval(fs.readFileSync('app.js', 'utf8') + '\n;window.__state=state;window.__restoreUi=restoreUiState;window.__uiKey=UI_STATE_KEY;');
-const $ = (selector) => w.document.querySelector(selector);
-const $$ = (selector) => [...w.document.querySelectorAll(selector)];
-const visible = (selector) => !$(selector).classList.contains('hidden');
+const $ = selector => w.document.querySelector(selector);
+const $$ = selector => [...w.document.querySelectorAll(selector)];
+const visible = selector => !$(selector).classList.contains('hidden');
 const results = [];
 const check = (name, fn) => { try { fn(); results.push('✅ ' + name); } catch (error) { results.push('❌ ' + name + ' → ' + error.message); process.exitCode = 1; } };
 
 setTimeout(() => {
-  check('App open-এ default Today All Collection; অন্যান্য ভারী tables lazy', () => {
+  check('App open-এ default Today Collection; অন্যান্য ভারী tables lazy', () => {
     assert.strictEqual(w.__state.activePage, 'today');
     assert(visible('#today-page'));
     assert(!visible('#installment-page'));
@@ -35,12 +35,27 @@ setTimeout(() => {
     assert.strictEqual($$('[data-staff-card]').length, 1);
     assert.strictEqual($$('[data-staff-entry]').length, 1);
     assert($('#today-staff-all-summary'));
+    assert($('#today-member-code') && $('#today-monthly-list') && $('#today-other-list') && $('#history-card'));
   });
 
-  check('Three-line menu-তে Today + সাতটি আলাদা logical page; পুরোনো দুই tab নেই', () => {
-    assert.strictEqual($$('[data-menu-page]').length, 8);
-    assert(!$('.page-tabs.bottom-nav'));
-    assert.strictEqual($('#btn-app-menu').querySelectorAll('.app-menu-line').length, 3);
+  check('নিচে শুধু Member List ও Today Collection—দুইটি fixed tab', () => {
+    const nav = $('.page-tabs.bottom-nav.two-page-nav');
+    assert(nav, 'দুই পেজের bottom navigation নেই');
+    assert.deepStrictEqual($$('[data-main-page]').map(item => item.dataset.mainPage), ['members', 'today']);
+    assert.deepStrictEqual($$('[data-main-page] .tab-label').map(item => item.textContent.trim()), ['Member List', 'Today Collection']);
+    assert(!$('.app-menu-shell') && !$('#btn-app-menu'), 'পুরোনো floating menu এখনো আছে');
+    assert.strictEqual($$('[data-menu-page]').length, 0);
+    assert($('[data-main-page="today"]').classList.contains('active'));
+    assert.strictEqual($('[data-main-page="today"]').getAttribute('aria-current'), 'page');
+    assert(!w.document.querySelector('main').contains(nav));
+  });
+
+  check('Member List dropdown-এ সব তালিকা নির্বাচনের option আছে', () => {
+    const select = $('#section-view-filter');
+    assert(select && !$('.member-list-picker').classList.contains('hidden'));
+    assert.deepStrictEqual([...select.options].map(option => option.value), [
+      'all', 'today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive',
+    ]);
   });
 
   const pages = [
@@ -48,27 +63,40 @@ setTimeout(() => {
     ['paid', 'sec-paid'], ['partial', 'sec-partial'], ['balance-directory', 'sec-balance-directory'], ['paid-archive', 'sec-paid-archive'],
   ];
   for (const [page, section] of pages) {
-    check(`Menu → ${page}: শুধু সেই table page দেখা যায়`, () => {
-      $('#btn-app-menu').click();
-      assert(visible('#app-menu-panel'));
-      $(`[data-menu-page="${page}"]`).click();
-      assert(!visible('#app-menu-panel'));
-      assert(!visible('#today-page'));
+    check(`Member List dropdown → ${page}: শুধু সেই তালিকা`, () => {
+      $('[data-main-page="members"]').click();
       assert(visible('#installment-page'));
+      assert(!visible('#today-page'));
+      const select = $('#section-view-filter');
+      select.value = page;
+      select.dispatchEvent(new w.Event('change', { bubbles: true }));
       assert(visible('#' + section));
-      $$('[data-sec]').forEach((item) => { if (item.id !== section) assert(item.classList.contains('hidden'), item.id); });
+      $$('[data-sec]').forEach(item => { if (item.id !== section) assert(item.classList.contains('hidden'), item.id); });
       assert.strictEqual(w.__state.activePage, page);
-      assert($(`[data-menu-page="${page}"]`).classList.contains('active'));
+      assert.strictEqual(select.value, page);
+      assert($('[data-main-page="members"]').classList.contains('active'));
+      assert(!$('[data-main-page="today"]').classList.contains('active'));
+      assert.strictEqual($('[data-main-page="members"]').getAttribute('aria-current'), 'page');
     });
   }
 
-  check('Return-এর উপর নির্ভর না করে menu থেকে Today-তে ফেরত যাওয়া যায়', () => {
-    w.__state.todayReturnPage = 'balance-directory';
-    $('#btn-app-menu').click();
-    $('[data-menu-page="today"]').click();
+  check('Today থেকে Member List-এ ফিরলে শেষ dropdown নির্বাচন থাকে', () => {
+    $('[data-main-page="today"]').click();
     assert(visible('#today-page'));
     assert(!visible('#installment-page'));
-    assert.strictEqual(w.__state.activePage, 'today');
+    $('[data-main-page="members"]').click();
+    assert(visible('#installment-page'));
+    assert(visible('#sec-paid-archive'));
+    assert.strictEqual(w.__state.activePage, 'paid-archive');
+    assert.strictEqual($('#section-view-filter').value, 'paid-archive');
+  });
+
+  check('Member List-এর সব তালিকা (পরপর) option অপরিবর্তিত', () => {
+    const select = $('#section-view-filter');
+    select.value = 'all';
+    select.dispatchEvent(new w.Event('change', { bubbles: true }));
+    ['sec-today-promise', 'sec-due', 'sec-paid', 'sec-partial'].forEach(id => assert(visible('#' + id), id));
+    assert($('[data-main-page="members"]').classList.contains('active'));
   });
 
   check('Saved UI-তে অন্য page থাকলেও restore default page বদলায় না', () => {
@@ -79,7 +107,7 @@ setTimeout(() => {
   });
 
   console.log(results.join('\n'));
-  const failed = results.filter((line) => line.startsWith('❌')).length;
+  const failed = results.filter(line => line.startsWith('❌')).length;
   console.log(`\n✅ পাস: ${results.length - failed}   ❌ ফেল: ${failed}`);
   w.close();
   process.exit(failed ? 1 : 0);

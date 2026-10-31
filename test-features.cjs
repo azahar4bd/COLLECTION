@@ -160,27 +160,22 @@ setTimeout(() => {
     assert(payable.compareDocumentPosition(due) & w.Node.DOCUMENT_POSITION_FOLLOWING, 'বাকী কিস্তির উপরে নয়');
   });
 
-  check('৮ পেজের three-line menu bottom-right fixed ও accessible', () => {
-    const nav = $('.app-menu-shell'), button = $('#btn-app-menu'), panel = $('#app-menu-panel');
-    assert(nav && button && panel, 'three-line navigation নেই');
-    const items = [...nav.querySelectorAll('[data-menu-page]')];
-    assert.strictEqual(items.length, 8);
-    assert.deepStrictEqual(items.map((item) => item.dataset.menuPage), ['today', 'today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive']);
-    assert(items.some((item) => item.textContent.includes('অন্যান্য সদস্য তালিকা')));
-    assert.strictEqual(button.querySelectorAll('.app-menu-line').length, 3);
-    assert.strictEqual(button.getAttribute('aria-controls'), 'app-menu-panel');
+  check('Member List + Today Collection—দুই প্রধান পেজের fixed bottom nav', () => {
+    const nav = $('.page-tabs.bottom-nav.two-page-nav');
+    assert(nav, 'দুই পেজের navigation নেই');
+    const items = [...nav.querySelectorAll('[data-main-page]')];
+    assert.deepStrictEqual(items.map(item => item.dataset.mainPage), ['members', 'today']);
+    assert(items[0].textContent.includes('Member List'));
+    assert(items[1].textContent.includes('Today Collection'));
+    assert(items[1].querySelector('#today-count-badge'));
+    assert(!$('.app-menu-shell') && !$('#app-menu-panel') && !$('#btn-app-menu'));
     assert(!w.document.querySelector('main').contains(nav));
     const css = fs.readFileSync('styles.css', 'utf8');
-    const block = css.slice(css.indexOf('.app-menu-shell'));
+    const block = css.slice(css.indexOf('.page-tabs.bottom-nav {'));
     assert(/position:\s*fixed/.test(block));
-    assert(/right:\s*16px/.test(block));
-    assert(/bottom:\s*16px/.test(block));
-    button.click();
-    assert(!panel.classList.contains('hidden'));
-    assert.strictEqual(button.getAttribute('aria-expanded'), 'true');
-    button.click();
-    assert(panel.classList.contains('hidden'));
-    assert.strictEqual(button.getAttribute('aria-expanded'), 'false');
+    assert(/left:\s*0/.test(block) && /right:\s*0/.test(block));
+    assert(/bottom:\s*0/.test(block));
+    assert(/\.two-page-nav/.test(css));
   });
 
   check('আজ প্রতিশ্রুতি সেকশন বাকী কিস্তির উপরে আছে', () => {

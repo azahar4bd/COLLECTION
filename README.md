@@ -4,6 +4,7 @@ CSV আপলোড করে কিস্তির ডাটা **বাকী 
 
 ## ফিচার
 
+- **👥 নিচে ২টি প্রধান পেজ** (v9.48) — fixed bottom navigation-এ **Member List** ও **Today Collection**। Member List-এর dropdown থেকে আজ প্রতিশ্রুতি, আজ আদায়যোগ্য, বাকী, আদায়, আংশিক, অন্যান্য সদস্য ও স্থায়ী আদায় আর্কাইভ নির্বাচন করা যায়; সব তালিকা পরপর দেখার option-ও আছে। শেষ তালিকা মনে থাকে, Today-এর form/entries/Close/Undo/হিসাবের খাতা এবং details→আদায়→Return অপরিবর্তিত।
 - **⌨️ Member code ঘরে auto লেখা নেই** (v9.47) — Today-এর মেম্বার কোড ঘরে typing, change বা blur-এ input আর rewrite হয় না; ব্যবহারকারীর লেখা code অক্ষরে-অক্ষরে থাকে। স্পষ্টভাবে suggestion/details/edit বেছে নিলে prefill আগের মতোই কাজ করে। মোট ঘরের auto-হিসাব ও financial rules অপরিবর্তিত।
 - **⌨️ Member code টাইপ নিরাপদ** (v9.46) — Today-এর মেম্বার কোড ঘরে টাইপ চলাকালে partial suffix match আর input বদলায় না; পূর্ণ code মিললে নাম/সেন্টার আসে, change/blur-এ মূল code সংক্ষিপ্ত রূপে দেখায়। আগের matched code-এর পরে অতিরিক্ত সংখ্যা লিখলে পুরোনো নাম/center লেগে থাকে না। Suggestion, সঠিক সদস্য নির্বাচন ও saved financial data অপরিবর্তিত।
 - **📚 Close batch-এ পুরো Today format** (v9.45) — হিসাবের খাতায় প্রতিটি Close batch আলাদা card-এ Today-এর মতোই **মাসিক আদায়, অন্যান্য আদায়, center subtotal, staff-wise tables, সকল স্টাফ সর্বমোট ও মাসিক+অন্যান্য summary** দেখায়। Entry row-এ একই columns ও edit/delete; তারিখ filter, roles, Undo এবং Neon data অপরিবর্তিত।

@@ -726,6 +726,17 @@ body.modal-open { overflow: hidden; }
 .page-tabs.bottom-nav .tab-ico { font-size: 16px; }
 .page-tabs.bottom-nav .tab-label { overflow: hidden; text-overflow: ellipsis; }
 .page-tabs.bottom-nav .page-tab.active { box-shadow: 0 4px 12px rgba(13,148,136,.30); }
+.two-page-nav .page-tab { min-height: 50px; cursor: pointer; }
+.two-page-nav .page-tab:not(.active) { background: #f8fafc; color: #475569; }
+.member-list-picker {
+  padding: 12px;
+  border: 1px solid #cce5de;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.member-list-picker label { color: #115e59; font-weight: 800; }
+.member-list-picker .select { flex: 1 1 240px; min-width: 0; font-weight: 700; }
 
 /* নিচের বার যেন কনটেন্ট ঢেকে না ফেলে */
 main { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
@@ -1365,55 +1376,7 @@ th.col-actions, td.row-actions { width: 76px; }
   .balance-directory-subtitle { display: block; margin: 3px 0 0; }
 }
 
-/* ===== v9.40: bottom-right three-line page menu ও member actions ===== */
-.app-menu-shell { position: fixed; right: 16px; bottom: 16px; z-index: 80; }
-.app-menu-button {
-  width: 56px;
-  height: 56px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border: 2px solid rgba(255,255,255,.85);
-  border-radius: 50%;
-  background: #0f766e;
-  box-shadow: 0 8px 24px rgba(15,23,42,.28);
-  cursor: pointer;
-}
-.app-menu-line { display: block; width: 25px; height: 3px; border-radius: 3px; background: #fff; }
-.app-menu-panel {
-  position: absolute;
-  right: 0;
-  bottom: 66px;
-  width: min(280px, calc(100vw - 32px));
-  overflow: hidden;
-  border: 1px solid #cce5de;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 16px 40px rgba(15,23,42,.25);
-}
-.app-menu-panel button {
-  width: 100%;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 11px 13px;
-  border: 0;
-  border-bottom: 1px solid #e2efeb;
-  background: #fff;
-  color: #134e4a;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 700;
-  text-align: left;
-  cursor: pointer;
-}
-.app-menu-panel button:last-child { border-bottom: 0; }
-.app-menu-panel button.active { background: #ccfbf1; color: #115e59; }
-.app-menu-panel button:hover { background: #f0fdfa; }
-.app-menu-panel .page-count { margin-left: auto; }
+/* ===== Member details-এর call/collection actions ===== */
 .member-modal-actions { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin-bottom: 10px; }
 .member-modal-actions .member-call-action,
 .member-modal-actions .member-collection-action { flex: 1 1 150px; margin: 0; }

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9.47">
+<link rel="stylesheet" href="styles.css?v=9.48">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f766e">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
@@ -130,8 +130,8 @@
         <button class="chip partial" id="chip-partial">⚠️ আংশিক <strong>০</strong></button>
       </div>
     </div>
-    <div class="section-view-filter hidden">
-      <label for="section-view-filter">📑 কোন তালিকা দেখাবেন?</label>
+    <div class="section-view-filter member-list-picker">
+      <label for="section-view-filter">👥 Member List — কোন তালিকা দেখাবেন?</label>
       <select id="section-view-filter" class="select">
         <option value="all">সব তালিকা (পরপর)</option>
         <option value="today-promise">আজ প্রতিশ্রুতি</option>
@@ -375,20 +375,13 @@
     </section>
   </main>
 
-  <!-- ===== নিচের ফিক্সড নেভিগেশন (সব সময় দেখা যায়) ===== -->
-  <nav class="app-menu-shell" aria-label="অ্যাপ মেনু">
-    <div id="app-menu-panel" class="app-menu-panel hidden" role="menu" aria-label="পেজ নির্বাচন">
-      <button type="button" role="menuitem" data-menu-page="today">📒 <span>Today All Collection</span><span class="page-count" id="today-count-badge">০</span></button>
-      <button type="button" role="menuitem" data-menu-page="today-promise">📌 <span>আজ প্রতিশ্রুতি</span></button>
-      <button type="button" role="menuitem" data-menu-page="payable">💰 <span>আজ আদায়যোগ্য</span></button>
-      <button type="button" role="menuitem" data-menu-page="due">🕒 <span>বাকী কিস্তি</span></button>
-      <button type="button" role="menuitem" data-menu-page="paid">✅ <span>আদায় কিস্তি</span></button>
-      <button type="button" role="menuitem" data-menu-page="partial">⚠️ <span>আংশিক কিস্তি</span></button>
-      <button type="button" role="menuitem" data-menu-page="balance-directory">👥 <span>অন্যান্য সদস্য তালিকা</span></button>
-      <button type="button" role="menuitem" data-menu-page="paid-archive">🗂️ <span>স্থায়ী আদায় আর্কাইভ</span></button>
-    </div>
-    <button id="btn-app-menu" class="app-menu-button" type="button" aria-label="মেনু খুলুন" aria-expanded="false" aria-controls="app-menu-panel">
-      <span class="app-menu-line"></span><span class="app-menu-line"></span><span class="app-menu-line"></span>
+  <!-- ===== নিচের ২টি প্রধান পেজ; Member List-এর তালিকা dropdown-এ ===== -->
+  <nav class="page-tabs bottom-nav two-page-nav" aria-label="প্রধান পেজ নির্বাচন">
+    <button class="page-tab" type="button" data-main-page="members" aria-controls="installment-page">
+      <span class="tab-ico" aria-hidden="true">👥</span><span class="tab-label">Member List</span>
+    </button>
+    <button class="page-tab" type="button" data-main-page="today" aria-controls="today-page">
+      <span class="tab-ico" aria-hidden="true">📒</span><span class="tab-label">Today Collection</span><span class="page-count" id="today-count-badge">০</span>
     </button>
   </nav>
 
@@ -512,9 +505,9 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="shared/csv-rules.js?v=9.47"></script>
-<script src="shared/xls-reader.js?v=9.47"></script>
-<script src="shared/active-members.js?v=9.47"></script>
-<script src="app.js?v=9.47"></script>
+<script src="shared/csv-rules.js?v=9.48"></script>
+<script src="shared/xls-reader.js?v=9.48"></script>
+<script src="shared/active-members.js?v=9.48"></script>
+<script src="app.js?v=9.48"></script>
 </body>
 </html>
