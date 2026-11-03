@@ -231,6 +231,46 @@ async function todayAndHistoryShareReviewTable() {
   return 'Today and হিসাবের খাতা share review; history Edit/Delete preserve unrelated entries and Actual';
 }
 
+async function closedPairExcludesOtherEntries() {
+  const env = makeEnvironment();
+  const a = await env.createDevice('pair-only-a');
+  await env.add(a, 25);
+  await env.add(a, 25);
+  await a.w.__flush();
+  await a.w.__close();
+  await a.w.__flush();
+  const duplicateIds = a.state.history.map((item) => String(item.id));
+  assert.strictEqual(duplicateIds.length, 2, 'the closed duplicate pair is not in হিসাবের খাতা');
+
+  /* An unrelated ordinary Today entry must remain in Today, not in the review table. */
+  const $ = (selector) => a.w.document.querySelector(selector);
+  a.w.__clearForm();
+  $('#today-member-code').value = 'other-x';
+  $('#today-center-code').value = '';
+  $('#today-member-name').value = 'Other Ordinary Entry';
+  $('#today-loan').value = '0';
+  $('#today-savings').value = '10';
+  $('#today-dps').value = '0';
+  $('#today-total').value = '10';
+  await a.w.__add();
+  await a.w.__flush();
+  const ordinaryId = String(a.state.todayRows[0].id);
+  a.w.__showPage('today');
+  const groups = a.w.__duplicateGroups();
+  assert.strictEqual(groups.length, 1);
+  assert.strictEqual(groups[0].entries.length, 2);
+  assert.strictEqual(a.state.history.length, 2, 'duplicate pair was removed from history');
+  assert.strictEqual(a.state.todayRows.length, 1, 'ordinary entry was lost from Today');
+  const reviewRows = [...a.w.document.querySelectorAll('.duplicate-entry-row')];
+  assert.strictEqual(reviewRows.length, 2, 'a non-duplicate entry appeared in the duplicate table');
+  assert(reviewRows.every((row) => duplicateIds.includes(row.dataset.entryId)));
+  assert(!reviewRows.some((row) => row.dataset.entryId === ordinaryId));
+  assert(reviewRows.every((row) => row.dataset.entrySource === 'হিসাবের খাতা'));
+  assert.strictEqual(env.remote.current.history.length, 2);
+  assert.strictEqual(env.remote.current.dailyData.todayRows.length, 1);
+  return 'closed duplicate pair stays in হিসাবের খাতা; only that pair appears in review, never ordinary entries';
+}
+
 async function reviewTodayEditDeleteActions() {
   const env = makeEnvironment();
   const a = await env.createDevice('actions-a');
@@ -271,7 +311,7 @@ async function reviewTodayEditDeleteActions() {
 }
 
 (async () => {
-  const tests = [exactOfflineEntriesSurvive, amountConflictStillSyncs, todayAndHistoryShareReviewTable, reviewTodayEditDeleteActions];
+  const tests = [exactOfflineEntriesSurvive, amountConflictStillSyncs, todayAndHistoryShareReviewTable, closedPairExcludesOtherEntries, reviewTodayEditDeleteActions];
   let failed = 0;
   for (const test of tests) {
     try { console.log('✅ ' + await test()); }
