@@ -54,13 +54,14 @@ setTimeout(() => {
     const select = $('#section-view-filter');
     assert(select && !$('.member-list-picker').classList.contains('hidden'));
     assert.deepStrictEqual([...select.options].map(option => option.value), [
-      'all', 'today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive',
+      'all', 'today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive', 'duplicates',
     ]);
   });
 
   const pages = [
     ['today-promise', 'sec-today-promise'], ['payable', 'sec-payable'], ['due', 'sec-due'],
     ['paid', 'sec-paid'], ['partial', 'sec-partial'], ['balance-directory', 'sec-balance-directory'], ['paid-archive', 'sec-paid-archive'],
+    ['duplicates', 'sec-duplicates'],
   ];
   for (const [page, section] of pages) {
     check(`Member List dropdown → ${page}: শুধু সেই তালিকা`, () => {
@@ -86,9 +87,9 @@ setTimeout(() => {
     assert(!visible('#installment-page'));
     $('[data-main-page="members"]').click();
     assert(visible('#installment-page'));
-    assert(visible('#sec-paid-archive'));
-    assert.strictEqual(w.__state.activePage, 'paid-archive');
-    assert.strictEqual($('#section-view-filter').value, 'paid-archive');
+    assert(visible('#sec-duplicates'));
+    assert.strictEqual(w.__state.activePage, 'duplicates');
+    assert.strictEqual($('#section-view-filter').value, 'duplicates');
   });
 
   check('Member List-এর সব তালিকা (পরপর) option অপরিবর্তিত', () => {

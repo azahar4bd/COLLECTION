@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9.50">
+<link rel="stylesheet" href="styles.css?v=9.51">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f766e">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
@@ -141,6 +141,7 @@
         <option value="partial">আংশিক কিস্তি</option>
         <option value="balance-directory">💰 অন্যান্য সদস্য তালিকা (মাসিক সদস্য বাদ)</option>
         <option value="paid-archive">🗂️ স্থায়ী আদায় আর্কাইভ</option>
+        <option value="duplicates">⚠️ ডুপ্লিকেট এন্ট্রি</option>
       </select>
     </div>
     <!-- ============ ডাটা না থাকলে ============ -->
@@ -243,6 +244,25 @@
       </div>
     </div>
 
+    <!-- ============ ডুপ্লিকেট / conflict review — কোনো entry auto-delete নয় ============ -->
+    <div class="table-card hidden duplicate-review-card" data-sec id="sec-duplicates">
+      <button class="table-head" data-collapse="sec-duplicates">
+        <span class="th-title">⚠️ ডুপ্লিকেট এন্ট্রি <span class="badge warn" id="count-duplicates">০</span></span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="table-body">
+        <p class="hint duplicate-review-note">সব device-এর সব entry sync ও সংরক্ষিত থাকে। একই member/account ও তারিখের entries এখানে group হয়; পুরোনো entry প্রথমে। এই টেবিল শুধু review-এর জন্য—কোনো entry auto-delete হয় না।</p>
+        <p id="duplicate-review-summary" class="hint"></p>
+        <div class="table-wrap hidden" id="duplicate-review-wrap">
+          <table id="duplicate-review-table">
+            <thead><tr><th>#</th><th>উৎস</th><th>Staff</th><th>Device</th><th>তৈরির সময়</th><th class="amt">লোন</th><th class="amt">সঞ্চয়</th><th class="amt">DPS</th><th class="amt">মোট</th></tr></thead>
+            <tbody id="duplicate-review-list"></tbody>
+          </table>
+        </div>
+        <div class="empty hidden" id="duplicate-review-empty">কোনো duplicate/conflict entry নেই।</div>
+      </div>
+    </div>
+
     <!-- ============ ৫. স্থায়ী আদায় আর্কাইভ — সবার নিচে আলাদা তালিকা ============ -->
     <div class="table-card hidden paid-archive-card" data-sec id="sec-paid-archive">
       <button class="table-head paid-archive-head" data-collapse="sec-paid-archive">
@@ -269,6 +289,7 @@
         </div>
       </div>
     </div>
+
     </section>
 
     <section id="today-page" class="app-page hidden">
@@ -505,9 +526,9 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="shared/csv-rules.js?v=9.50"></script>
-<script src="shared/xls-reader.js?v=9.50"></script>
-<script src="shared/active-members.js?v=9.50"></script>
-<script src="app.js?v=9.50"></script>
+<script src="shared/csv-rules.js?v=9.51"></script>
+<script src="shared/xls-reader.js?v=9.51"></script>
+<script src="shared/active-members.js?v=9.51"></script>
+<script src="app.js?v=9.51"></script>
 </body>
 </html>

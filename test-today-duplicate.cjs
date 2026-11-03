@@ -1,4 +1,4 @@
-/* Today: short-code classification, double-tap lock, exact duplicate guard and safe legacy cleanup. */
+/* Today: short-code classification, double-tap lock, and sync-all duplicate review. */
 const fs = require('fs');
 const assert = require('assert');
 const { JSDOM } = require('jsdom');
@@ -66,6 +66,8 @@ window.__add = addTodayRow;
 window.__flush = flushOutbox;
 window.__clearForm = clearTodayForm;
 window.__isMonthly = isMonthlyEntry;
+window.__duplicateGroups = collectionDuplicateGroups;
+window.__renderDuplicateReview = renderDuplicateReview;
 `);
 const $ = (selector) => w.document.querySelector(selector);
 const $$ = (selector) => [...w.document.querySelectorAll(selector)];
@@ -90,14 +92,21 @@ setTimeout(async () => {
     catch (error) { results.push('❌ ' + name + ' → ' + error.message); process.exitCode = 1; }
   };
 
-  await check('পুরোনো keyless/unapplied exact duplicate সরে; applied আদায় অপরিবর্তিত', async () => {
+  await check('পুরোনো keyless/unapplied exact duplicate-ও সংরক্ষিত; applied আদায় অপরিবর্তিত', async () => {
     await w.__flush();
-    assert.strictEqual(state.todayRows.length, 1);
-    assert.strictEqual(state.todayRows[0].id, 'anchored');
+    assert.strictEqual(state.todayRows.length, 2, 'legacy duplicate auto-delete হয়েছে');
+    assert.deepStrictEqual(state.todayRows.map(item => item.id), ['anchored', 'duplicate']);
     assert.strictEqual(state.rows[0][5], '6147', 'কিস্তির টাকা বদলে গেছে');
-    assert.strictEqual(remote.dailyData.todayRows.length, 1, 'cleanup Neon-এ sync হয়নি');
+    assert.strictEqual(remote.dailyData.todayRows.length, 2, 'একটি entry Neon থেকে বাদ পড়েছে');
     assert.strictEqual($$('#today-other-list tr.today-row').length, 0);
-    assert.strictEqual($$('#today-monthly-list tr.today-row').length, 1);
+    assert.strictEqual($$('#today-monthly-list tr.today-row').length, 2);
+    w.__renderDuplicateReview();
+    const groups = w.__duplicateGroups();
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].exact, true);
+    assert.strictEqual(groups[0].entries.length, 2);
+    assert.strictEqual($$('.duplicate-entry-row').length, 2);
+    assert($('.duplicate-group-row').textContent.includes('হুবহু duplicate'));
   });
 
   await check('একই form-এ concurrent double-tap-এ একটি entry ও একবারই কিস্তি যোগ হয়', async () => {
@@ -113,20 +122,31 @@ setTimeout(async () => {
     assert.strictEqual(w.__isMonthly(entries[0]), true);
   });
 
-  await check('Save শেষে short code দিয়ে একই আদায় retry করলেও duplicate হয় না', async () => {
+  await check('Save শেষে short code দিয়ে exact repeat করলে নতুন ID-র duplicate entry সংরক্ষিত হয়', async () => {
     fill({ code: '5902', center: '0155', name: 'Mim', loan: 100 });
     await w.__add();
-    assert.strictEqual(state.todayRows.filter((item) => item.memberName === 'Mim').length, 1);
-    assert.strictEqual(state.rows[1][5], '100');
+    const entries = state.todayRows.filter((item) => item.memberName === 'Mim');
+    assert.strictEqual(entries.length, 2);
+    assert.strictEqual(new Set(entries.map(item => item.id)).size, 2);
+    assert.strictEqual(state.rows[1][5], '200');
     assert.strictEqual($$('#today-other-list tr.today-row').length, 0);
   });
 
-  await check('একই member-এর ভিন্ন অঙ্কের পরবর্তী আদায় আটকে যায় না', async () => {
+  await check('একই member-এর ভিন্ন amount-ও আলাদা entry; review table-এ Amount conflict', async () => {
     fill({ code: '5902', center: '0155', name: 'Mim', loan: 150 });
     await w.__add();
-    assert.strictEqual(state.todayRows.filter((item) => item.memberName === 'Mim').length, 2);
-    assert.strictEqual(state.rows[1][5], '250');
+    const entries = state.todayRows.filter((item) => item.memberName === 'Mim');
+    assert.strictEqual(entries.length, 3);
+    assert.strictEqual(state.rows[1][5], '350');
     assert.strictEqual($$('#today-other-list tr.today-row').length, 0);
+    w.__renderDuplicateReview();
+    const group = w.__duplicateGroups().find(item => item.first.memberName === 'Mim');
+    assert(group && !group.exact);
+    assert.strictEqual(group.entries.length, 3);
+    const groupRow = $$('.duplicate-group-row').find(row => row.textContent.includes('Mim'));
+    assert(groupRow && groupRow.textContent.includes('Amount conflict'));
+    assert.strictEqual($$('.duplicate-entry-row').length, 5);
+    assert($$('.duplicate-entry-row').some(row => row.textContent.includes('150')));
   });
 
   await check('Directory code না পেলেও কিস্তির unique নাম থেকে full code ও installment পাওয়া যায়', async () => {

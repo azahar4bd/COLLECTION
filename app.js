@@ -114,7 +114,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.50';
+const APP_VER = 'v9.51';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -1034,16 +1034,11 @@ const loadDB = async (quiet = false) => {
     try { await persistRows(); toast('✅ এই ব্রাউজারের সদস্য/আজকের ডাটা Neon-এ শেয়ার করা হয়েছে'); }
     catch (error) { toast('⚠️ এই ব্রাউজারের ডাটা Neon-এ সিঙ্ক হয়নি: '+error.message,true); }
   }
-  /* পুরোনো double-tap-এর unapplied ‘অন্যান্য’ copy থাকলে নিরাপদে সরাই;
-     appliedLoan>0 বা ভিন্ন অঙ্কের কোনো entry এখানে মুছে যায় না। */
-  const cleanedDuplicates = canCollect() ? cleanupUnappliedTodayDuplicates() : 0;
-  if (cleanedDuplicates) {
-    try { await persistRows({ background: true }); }
-    catch (error) { toast('⚠️ ডাবল এন্ট্রি পরিষ্কার করে sync করা যায়নি: '+error.message, true); }
-  }
-  if ((changed || cleanedDuplicates) && quiet) {
+  /* Duplicate/conflict entry-ও ডাটা—auto-delete নয়। সব ID সংরক্ষিত থাকে
+     এবং Member List → ডুপ্লিকেট এন্ট্রি review table-এ দেখা যায়। */
+  if (changed && quiet) {
     renderAll();
-    toast(cleanedDuplicates ? `🧹 ${fmt(cleanedDuplicates)}টি ডাবল ‘অন্যান্য আদায়’ copy সরানো হয়েছে · Neon sync চলছে` : '🔄 ডাটা আপডেট হয়েছে');
+    toast('🔄 ডাটা আপডেট হয়েছে');
   }
 };
 
@@ -1819,7 +1814,8 @@ function renderTables() {
   $('#chip-paid strong').textContent = fmt(groups.paid.length);
   $('#chip-partial strong').textContent = fmt(groups.partial.length);
 
-  const hasData = state.rows.length > 0 || state.paidArchive.length > 0 || state.balanceRows.length > 0;
+  const hasData = state.rows.length > 0 || state.paidArchive.length > 0 || state.balanceRows.length > 0
+    || state.todayRows.length > 0 || state.history.length > 0;
   $('#no-data').classList.toggle('hidden', hasData);
   $$('[data-sec]').forEach((el) => el.classList.toggle('hidden', !hasData));
   const balancePage = state.activePage === 'balance-directory';
@@ -1829,7 +1825,7 @@ function renderTables() {
 }
 
 // কোন তালিকা দেখাবেন (সব / আজ প্রতিশ্রুতি / বাকী / আদায় / আংশিক)
-const SECTION_KEYS = ['today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive'];
+const SECTION_KEYS = ['today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive', 'duplicates'];
 
 /* সব তালিকা ডিফল্টে বন্ধ (collapsed) — মাথায় চাপ দিলে খোলে */
 function collapseAllSections() {
@@ -1849,7 +1845,11 @@ function applySectionView() {
   SECTION_KEYS.forEach((key) => {
     const el = $('#sec-' + key);
     if (!el) return;
-    const hasSectionData = key === 'balance-directory' ? state.balanceRows.length > 0 : installmentData;
+    const hasSectionData = key === 'balance-directory'
+      ? state.balanceRows.length > 0
+      : key === 'duplicates'
+        ? state.todayRows.length > 0 || state.history.length > 0
+        : installmentData;
     const show = hasSectionData && (view === 'all' || view === key);
     el.classList.toggle('hidden', !show);
     /* একক তালিকা বাছলে সেটা নিজে থেকেই খুলে যায় */
@@ -2660,45 +2660,91 @@ function resolvedTodayInstallmentKey(item) {
   if (rowIndex >= 0) return installmentRowKey(state.rows[rowIndex]);
   return String(item?.installmentKey || '');
 }
-function todayDuplicateSignature(item) {
-  const installmentKey = resolvedTodayInstallmentKey(item);
-  const account = installmentKey ? `installment:${installmentKey}` : `member:${dailyAccountKey(item)}`;
+function duplicateInstallmentAccount(item) {
+  /* installmentRef (loan/due/occurrence) paidDate বদলালেও স্থির থাকে।
+     পুরোনো keyless entry-কেও বর্তমান row থেকে একই account-এ যুক্ত করি। */
+  const explicitRef = String(item?.installmentRef || '');
+  if (explicitRef) return `installment-ref:${explicitRef}`;
+  const storedKey = String(item?.installmentKey || '');
+  let rowIndex = storedKey ? findRowByInstallmentKey(storedKey) : -1;
+  if (rowIndex < 0) rowIndex = findInstallmentRowForEntry(item);
+  if (rowIndex >= 0) return `installment-ref:${paidArchiveKey(state.rows[rowIndex])}`;
+  const fallbackKey = resolvedTodayInstallmentKey(item);
+  return fallbackKey ? `installment:${fallbackKey}` : '';
+}
+function todayDuplicateGroupKey(item) {
+  const account = duplicateInstallmentAccount(item) || `member:${dailyAccountKey(item)}`;
+  return JSON.stringify([String(item.date || localDateInputValue()).slice(0, 10), account]);
+}
+function todayAmountSignature(item) {
   return JSON.stringify([
-    String(item.date || localDateInputValue()).slice(0, 10), account,
-    roundMoney(num(item.loan)), roundMoney(num(item.savings)), roundMoney(num(item.dps)), roundMoney(num(item.total)),
+    roundMoney(num(item?.loan)), roundMoney(num(item?.savings)),
+    roundMoney(num(item?.dps)), roundMoney(num(item?.total)),
   ]);
 }
-/* পুরোনো slow-save/double-tap-এর নিরাপদ duplicate copy পরিষ্কার করা।
-   শুধু installment-linked entry-র একই অঙ্কের এমন copy সরাই যার installmentKey নেই
-   এবং appliedLoan-ও ০—অর্থাৎ কিস্তির টাকায় এর কোনো প্রভাব নেই। */
-function cleanupUnappliedTodayDuplicates() {
-  const groups = new Map();
-  state.todayRows.forEach((item, index) => {
-    const key = todayDuplicateSignature(item);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push({ item, index });
+function pendingCollectionEntryIds() {
+  const ids = new Set();
+  const add = (item) => { if (item?.id) ids.add(String(item.id)); };
+  state.outbox.forEach((job) => {
+    (job.patch?.todayUpserts || []).forEach(add);
+    (job.patch?.historyUpserts || []).forEach(add);
+    (job.document?.dailyData?.todayRows || []).forEach(add);
+    (job.document?.history || []).forEach(add);
   });
-  const remove = new Set();
-  groups.forEach((entries) => {
-    if (entries.length < 2) return;
-    /* installmentKey-এ paid-date-এর মতো পরিবর্তনশীল field থাকতে পারে, তাই
-       পুরোনো key এখন match না করলেও keyless unapplied copy-টি সরানো নিরাপদ। */
-    const anchored = entries.filter(({ item }) => Boolean(item.installmentKey))
-      .sort((a, b) => compareAZ(a.item.createdAt, b.item.createdAt));
-    if (!anchored.length) return;
-    const keep = anchored[0];
-    entries.forEach((candidate) => {
-      if (candidate.index === keep.index || candidate.item.installmentKey || num(candidate.item.appliedLoan) > 0) return;
-      /* Staff শুধু নিজের entry পরিষ্কার করবে; Admin সবগুলো পারবে। */
-      if (!canEditEntry(candidate.item) || !canEditEntry(keep.item)) return;
-      remove.add(candidate.index);
+  return ids;
+}
+/* Duplicate/conflict এখন review metadata মাত্র—কোনো entry auto-delete বা sync
+   block হয় না। Today + history-র role-visible সব ID এখানে দেখা যায়। */
+function collectionDuplicateGroups() {
+  const pending = pendingCollectionEntryIds();
+  const entries = [
+    ...state.todayRows.map((item) => ({ item, source: 'Today' })),
+    ...state.history.map((item) => ({ item, source: 'হিসাবের খাতা' })),
+  ].filter(({ item }) => entryVisibleToIdentity(item));
+  const grouped = new Map();
+  entries.forEach((entry) => {
+    const key = todayDuplicateGroupKey(entry.item);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push({ ...entry, pending: pending.has(String(entry.item.id || '')) });
+  });
+  const groups = [];
+  grouped.forEach((items, key) => {
+    if (items.length < 2) return;
+    items.sort((a, b) => compareAZ(a.item.createdAt, b.item.createdAt) || compareAZ(a.item.id, b.item.id));
+    const exact = new Set(items.map(({ item }) => todayAmountSignature(item))).size === 1;
+    groups.push({ key, entries: items, exact, first: items[0].item });
+  });
+  return groups.sort((a, b) => compareAZ(b.first.date, a.first.date)
+    || compareMemberCodes(a.first.memberCode, b.first.memberCode)
+    || compareAZ(a.first.memberName, b.first.memberName));
+}
+function duplicateEntryTime(value) {
+  const date = new Date(value || '');
+  if (Number.isNaN(date.getTime())) return '—';
+  return `${shortDate(value)} ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+}
+function renderDuplicateReview() {
+  const body = $('#duplicate-review-list');
+  if (!body) return;
+  const groups = collectionDuplicateGroups();
+  const totalEntries = groups.reduce((sum, group) => sum + group.entries.length, 0);
+  const conflicts = groups.filter((group) => !group.exact).length;
+  $('#count-duplicates').textContent = fmt(totalEntries);
+  $('#duplicate-review-summary').textContent = groups.length
+    ? `${fmt(groups.length)}টি group · ${fmt(totalEntries)}টি entry · ${fmt(conflicts)}টি amount conflict`
+    : 'কোনো duplicate/conflict entry নেই';
+  const html = [];
+  groups.forEach((group) => {
+    const first = group.first;
+    html.push(`<tr class="duplicate-group-row" data-duplicate-group="${esc(group.key)}"><td colspan="9"><div class="duplicate-group-title"><strong>${esc(first.memberName || '—')}</strong><span>মেম্বার ${esc(displayMemberCode(first.memberCode))} · সেন্টার ${esc(displayCenterCode(first.centerCode))} · ${esc(shortDate(first.date))}</span><span class="badge ${group.exact ? '' : 'warn'}">${group.exact ? 'হুবহু duplicate' : '⚠️ Amount conflict'}</span><span>${fmt(group.entries.length)}টি entry</span></div></td></tr>`);
+    group.entries.forEach(({ item, source, pending }, index) => {
+      const device = String(item.ownerDevice || '');
+      html.push(`<tr class="duplicate-entry-row" data-entry-id="${esc(item.id || '')}"><td>${fmt(index + 1)}</td><td>${esc(source)}${pending ? '<span class="duplicate-pending">⏳ sync বাকী</span>' : ''}</td><td>${esc(entryOwnerStaff(item) || '—')}</td><td class="duplicate-device" title="${esc(device)}">${esc(device ? device.slice(-6) : '—')}</td><td>${esc(duplicateEntryTime(item.createdAt))}</td><td class="amt">${fmtMoney(num(item.loan))}</td><td class="amt">${fmtMoney(num(item.savings))}</td><td class="amt">${fmtMoney(num(item.dps))}</td><td class="amt">${fmtMoney(num(item.total))}</td></tr>`);
     });
   });
-  if (!remove.size) return 0;
-  const editingIndex = resolveTodayEditIndex();
-  state.todayRows = state.todayRows.filter((_, index) => !remove.has(index));
-  if (remove.has(editingIndex)) clearTodayEditTarget();
-  return remove.size;
+  body.innerHTML = html.join('');
+  $('#duplicate-review-empty').classList.toggle('hidden', groups.length > 0);
+  $('#duplicate-review-wrap').classList.toggle('hidden', groups.length === 0);
 }
 
 function renderToday() {
@@ -3472,16 +3518,8 @@ async function addTodayRow() {
   const editingIndex = requestedEdit;
   const editingItem = editingIndex >= 0 ? state.todayRows[editingIndex] : null;
   const installmentKey = rowIndex >= 0 ? installmentRowKey(state.rows[rowIndex]) : '';
-  const duplicateCandidate = {
-    memberCode: code, centerCode, memberName, installmentKey,
-    date: editingItem?.date || localDateInputValue(), loan, savings, dps, total,
-  };
-  const duplicateSignature = todayDuplicateSignature(duplicateCandidate);
-  const duplicate = state.todayRows.some((item, index) => index !== editingIndex && todayDuplicateSignature(item) === duplicateSignature);
-  if (duplicate) {
-    toast('⚠️ একই সদস্য/কিস্তির একই অঙ্কের আদায় আজকের তালিকায় আগেই আছে—ডাবল এন্ট্রি হয়নি। বদলাতে ✏️ চাপুন।', true);
-    return;
-  }
+  /* Exact বা amount-conflict—সব entry নতুন/existing ID দিয়ে sync হবে।
+     Duplicate শুধু review table-এ চিহ্নিত হয়; এখানে save block করা হয় না। */
   let prevActual = rowIndex >= 0 && d.actual >= 0 ? String(state.rows[rowIndex][d.actual] ?? '') : '';
   let prevPaidDate = rowIndex >= 0 && d.paidDate >= 0 ? String(state.rows[rowIndex][d.paidDate] ?? '') : '';
 
@@ -3721,6 +3759,7 @@ function renderActivePage() {
   } else {
     renderTables();
     if (state.activePage === 'balance-directory') renderBalanceDirectory();
+    if (state.activePage === 'duplicates' || state.sectionView === 'all') renderDuplicateReview();
   }
 }
 function showPage(page, silent = false, alreadyRendered = false) {
