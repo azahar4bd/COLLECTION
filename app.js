@@ -114,7 +114,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.49';
+const APP_VER = 'v9.50';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -591,6 +591,9 @@ async function pushQueuedOperation(job) {
   return neonWrite(job.document);
 }
 let flushPromise = null;
+/* Canonical GET-এর আগে/পরে local mutation হলো কি না শনাক্ত করার monotonic version।
+   Outbox খালি হয়ে গেলেও পুরোনো GET response যেন নতুন local state মুছে না দেয়। */
+let localMutationVersion = 0;
 async function flushOutbox() {
   if (flushPromise) return flushPromise;
   if (!state.isOnline || !state.outbox.length) return 0;
@@ -972,7 +975,17 @@ const loadDB = async (quiet = false) => {
     try { await flushOutbox(); }
     catch (error) { updateSyncStatus(); return { ok: true, offline: true, queued: true, error: error.message }; }
   }
+  const readMutationVersion = localMutationVersion;
   const document = await neonRead();
+  /* GET চলাকালে নতুন entry/edit/delete হলে এই response আর canonical নয়।
+     Operation এমনকি ইতিমধ্যে flush হয়ে outbox থেকে বাদ গেলেও পুরোনো response
+     apply করলে সেটি local cache/state থেকে মুছে যায়—তাই পুরোনো response বাদ দিই। */
+  if (readMutationVersion !== localMutationVersion || state.outbox.length) {
+    state.needsCanonicalSync = true;
+    if (state.outbox.length) scheduleBackgroundFlush();
+    updateSyncStatus();
+    return { ok: true, stale: true, queued: state.outbox.length };
+  }
   let headers = [], rows = [];
   if (document && Array.isArray(document.headers) && Array.isArray(document.rows)) {
     headers = document.headers;
@@ -1094,6 +1107,7 @@ function buildPatch(doc) {
 }
 
 const persistRows = async (options = {}) => {
+  localMutationVersion += 1;
   const allowOffline = options.allowOffline !== false;
   const background = allowOffline && options.background === true;
   const document = buildDocument();
