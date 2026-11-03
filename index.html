@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9.52">
+<link rel="stylesheet" href="styles.css?v=9.53">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f766e">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
@@ -286,15 +286,13 @@
       <div class="today-entry-grid" data-collection-write>
         <div class="field">
           <label for="today-member-code">মেম্বার কোড</label>
-          <input id="today-member-code" autocomplete="off" inputmode="numeric" list="today-member-code-options" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="today-code-suggestions">
-          <datalist id="today-member-code-options"></datalist>
+          <input id="today-member-code" autocomplete="off" inputmode="numeric" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="today-code-suggestions">
           <div id="today-code-suggestions" class="today-suggestions hidden" role="listbox" aria-label="মেম্বার কোডের সাজেশন"></div>
         </div>
         <div class="field"><label for="today-center-code">সেন্টার কোড</label><input id="today-center-code" autocomplete="off" inputmode="numeric" enterkeyhint="done"></div>
         <div class="field">
           <label for="today-member-name">মেম্বার নাম</label>
-          <input id="today-member-name" autocomplete="off" list="today-member-name-options" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="today-name-suggestions">
-          <datalist id="today-member-name-options"></datalist>
+          <input id="today-member-name" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="today-name-suggestions">
           <div id="today-name-suggestions" class="today-suggestions align-right hidden" role="listbox" aria-label="মেম্বার নামের সাজেশন"></div>
         </div>
         <div class="field"><label for="today-loan">লোন</label><input id="today-loan" type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*" title="শুধু পূর্ণসংখ্যা"></div>
@@ -525,9 +523,9 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="shared/csv-rules.js?v=9.52"></script>
-<script src="shared/xls-reader.js?v=9.52"></script>
-<script src="shared/active-members.js?v=9.52"></script>
-<script src="app.js?v=9.52"></script>
+<script src="shared/csv-rules.js?v=9.53"></script>
+<script src="shared/xls-reader.js?v=9.53"></script>
+<script src="shared/active-members.js?v=9.53"></script>
+<script src="app.js?v=9.53"></script>
 </body>
 </html>

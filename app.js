@@ -114,7 +114,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.52';
+const APP_VER = 'v9.53';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -2079,37 +2079,38 @@ function fillTodayMemberByName() {
   if(ki>=0){state.todayRawMember=String(row[ki]||'').trim();$('#today-member-code').value=displayMemberCode(row[ki]);}
   renderToday();
 }
-/* সদস্য তালিকার ড্রপডাউন একবারই বানাই — প্রতি কী-স্ট্রোকে ৫,০০০+ option নতুন করে বানালে অ্যাপ আটকে যায় */
-let directoryOptionsCache = { key: '', code: '', name: '' };
-function directoryOptionsKey() {
-  return `${selectedStaffName()}:${state.memberDB.length}:${state.memberDBHeaders.length}:${state.memberDB[0]?.length || 0}:${state.memberDB[state.memberDB.length - 1]?.[0] ?? ''}`;
-}
-function renderTodayDirectoryOptions() {
-  const codeList=$('#today-member-code-options'), nameList=$('#today-member-name-options');
-  if(!codeList||!nameList) return;
-  const key = directoryOptionsKey();
-  if (directoryOptionsCache.key === key) {
-    if (codeList.innerHTML !== directoryOptionsCache.code) codeList.innerHTML = directoryOptionsCache.code;
-    if (nameList.innerHTML !== directoryOptionsCache.name) nameList.innerHTML = directoryOptionsCache.name;
-    return;
-  }
-  const ci=memberCol(state.memberDBHeaders,'code'), ni=memberCol(state.memberDBHeaders,'name');
-  const visibleDirectory = state.memberDB.filter(directoryRowVisible);
-  const byCode=[...visibleDirectory].sort((a,b)=>compareAZ(ci>=0?a[ci]:'',ci>=0?b[ci]:'')||compareAZ(ni>=0?a[ni]:'',ni>=0?b[ni]:''));
-  const codeHtml=byCode.map(row=>ci>=0?`<option value="${esc(displayMemberCode(row[ci]))}">${esc(ni>=0?row[ni]:'')}</option>`:'').join('');
-  const byName=[...visibleDirectory].sort((a,b)=>compareAZ(ni>=0?a[ni]:'',ni>=0?b[ni]:'')||compareAZ(ci>=0?a[ci]:'',ci>=0?b[ci]:''));
-  const nameHtml=byName.map(row=>ni>=0?`<option value="${esc(row[ni])}">${esc(ci>=0?displayMemberCode(row[ci]):'')}</option>`:'').join('');
-  directoryOptionsCache = { key, code: codeHtml, name: nameHtml };
-  codeList.innerHTML=codeHtml; nameList.innerHTML=nameHtml;
-}
-
 /* Today এন্ট্রি: মেম্বার কোড/নাম লিখলেই ইনপুটের নিচে দৃশ্যমান, ট্যাপযোগ্য সাজেশন।
    native datalist ফোনে সবসময় দেখা যায় না—তাই ছোট এই তালিকাটি আলাদা করে দেখানো হয়। */
 const TODAY_SUGGESTION_LIMIT = 8;
+function todaySuggestionPanels() {
+  return [['#today-code-suggestions', '#today-member-code'], ['#today-name-suggestions', '#today-member-name']];
+}
+/* Native datalist Android/WebView-এ viewport-এর বাইরে giant popup খোলে।
+   Custom panel-টি visualViewport-এর ভেতরে থাকে; জায়গা কম হলে উপরে খোলে। */
+function positionTodaySuggestions() {
+  const viewport = window.visualViewport;
+  const top = viewport ? (Number(viewport.offsetTop) || 0) : 0;
+  const height = viewport ? (Number(viewport.height) || window.innerHeight) : window.innerHeight;
+  const bottom = top + height;
+  const gap = 10;
+  todaySuggestionPanels().forEach(([panelSel, inputSel]) => {
+    const panel = $(panelSel), input = $(inputSel);
+    if (!panel || !input || panel.classList.contains('hidden')) return;
+    const rect = input.getBoundingClientRect();
+    const below = Math.max(0, bottom - rect.bottom - gap);
+    const above = Math.max(0, rect.top - top - gap);
+    const openAbove = below < 96 && above > below;
+    const available = Math.max(0, Math.floor(openAbove ? above : below));
+    panel.style.maxHeight = `${Math.min(230, available)}px`;
+    panel.style.top = openAbove ? 'auto' : 'calc(100% + 4px)';
+    panel.style.bottom = openAbove ? 'calc(100% + 4px)' : 'auto';
+    panel.dataset.placement = openAbove ? 'above' : 'below';
+  });
+}
 function hideTodaySuggestions() {
   [['#today-code-suggestions', '#today-member-code'], ['#today-name-suggestions', '#today-member-name']].forEach(([panelSel, inputSel]) => {
     const panel = $(panelSel), input = $(inputSel);
-    if (panel) { panel.classList.add('hidden'); panel.innerHTML = ''; }
+    if (panel) { panel.classList.add('hidden'); panel.innerHTML = ''; panel.style.maxHeight = ''; panel.style.top = ''; panel.style.bottom = ''; panel.removeAttribute('data-placement'); }
     if (input) input.setAttribute('aria-expanded', 'false');
   });
 }
@@ -2165,6 +2166,7 @@ function renderTodaySuggestions(kind) {
     </button>`).join('')
     + (matches.length > shown.length ? `<div class="today-suggestion-more">আরও ${fmt(matches.length - shown.length)}টি মিলেছে — আরও কিছু লিখুন</div>` : '');
   panel.classList.remove('hidden');
+  positionTodaySuggestions();
   input.setAttribute('aria-expanded', 'true');
   return shown;
 }
@@ -2754,7 +2756,6 @@ function renderDuplicateReview() {
 function renderToday() {
   const monthlyBody = $('#today-monthly-list'), otherBody = $('#today-other-list');
   if (!monthlyBody || !otherBody) return;
-  renderTodayDirectoryOptions();
   const visibleTodayRows = state.todayRows.filter(entryVisibleToIdentity);
   $('#today-count-badge').textContent = fmt(visibleTodayRows.length);
 
@@ -2906,7 +2907,10 @@ function renderToday() {
   toggleEmpty('#today-monthly-empty', monthly.length === 0);
   toggleEmpty('#today-other-empty', others.length === 0);
   renderTodayBalanceCard();
-  renderDuplicateReview();
+  /* Typing-এ প্রতি keystroke-এ বড় duplicate table আবার বানানোর দরকার নেই।
+     Entry/close/delete/load-এর সময় focus form-এর বাইরে থাকলে table refresh হয়। */
+  const activeElement = document.activeElement;
+  if (!activeElement?.closest?.('.today-entry-grid')) renderDuplicateReview();
 }
 /* ---------- Today All Collection: এন্ট্রি এডিট / ডিলিট ---------- */
 function revertAppliedLoan(item, d = state.detect) {
@@ -3856,7 +3860,6 @@ function selectIdentity() {
   if (!staff && $('#f-staff')) $('#f-staff').value = '';
   if ($('#f-center')) $('#f-center').value = '';
   if ($('#f-member')) $('#f-member').value = '';
-  directoryOptionsCache.key = '';
   applyIdentityAccess(); populateFilters(); renderAll(); hideIdentityGate();
   toast(`✅ ${staff || roleLabel(role)} হিসেবে প্রবেশ করেছেন`);
 }
@@ -4486,6 +4489,7 @@ function syncKeyboardMode() {
   document.body.classList.toggle('kb-open', open);
   document.documentElement.style.setProperty('--keyboard-h', `${Math.round(keyboard)}px`);
   if (open) keepEntryAreaVisible();
+  positionTodaySuggestions();
 }
 
 /* ---------------- Init ---------------- */
@@ -4519,10 +4523,13 @@ document.addEventListener('focusout', () => {
     if (!active || !active.closest || !active.closest('.today-entry-grid')) {
       document.body.classList.remove('kb-entry');
       syncKeyboardMode();
+      renderDuplicateReview();
     }
   }, 120);
 });
 window.addEventListener('resize', syncKeyboardMode);
+window.addEventListener('resize', positionTodaySuggestions);
+window.addEventListener('scroll', positionTodaySuggestions, { passive: true });
 const appHeader = $('.app-header');
 const syncStickyPageTabs = () => {
   const height = appHeader?.getBoundingClientRect().height || 88;

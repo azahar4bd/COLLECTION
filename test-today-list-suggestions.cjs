@@ -30,7 +30,7 @@ w.HTMLElement.prototype.scrollIntoView = () => {};
 w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 w.confirm = () => true;
 w.fetch = async () => ({ ok: true, status: 200, json: async () => cloud });
-w.eval(fs.readFileSync('app.js', 'utf8') + `\n;window.__state = state; window.__renderToday = renderToday;`);
+w.eval(fs.readFileSync('app.js', 'utf8') + `\n;window.__state = state; window.__renderToday = renderToday; window.__positionSuggestions = positionTodaySuggestions; window.__renderDuplicateReview = renderDuplicateReview;`);
 
 const $ = (sel) => w.document.querySelector(sel);
 const $$ = (sel) => [...w.document.querySelectorAll(sel)];
@@ -43,6 +43,14 @@ setTimeout(() => {
     try { fn(); results.push(`✅ ${name}`); }
     catch (e) { results.push(`❌ ${name} → ${e.message}`); process.exitCode = 1; }
   };
+
+  check('Android-এর giant native datalist নেই; lightweight custom suggestion-ই আছে', () => {
+    assert(!$('#today-member-code').hasAttribute('list'));
+    assert(!$('#today-member-name').hasAttribute('list'));
+    assert(!$('#today-member-code-options'));
+    assert(!$('#today-member-name-options'));
+    assert($('#today-code-suggestions') && $('#today-name-suggestions'));
+  });
 
   check('মাসিক ও অন্যান্য—দুই তালিকাতেই স্থিতির ৩ কলাম বাদ, মোট পর্যন্ত ৯ কলাম', () => {
     ['#today-monthly-list', '#today-other-list'].forEach((sel) => {
@@ -82,6 +90,22 @@ setTimeout(() => {
     assert(options[0].textContent.includes('0123'), 'শেষ ৪ সংখ্যা নেই');
   });
 
+  check('Custom suggestion keyboard-এর viewport-এ থাকে; জায়গা কম হলে উপরে খোলে', () => {
+    const input = $('#today-member-code');
+    const panel = $('#today-code-suggestions');
+    w.visualViewport = { height: 400, offsetTop: 0 };
+    input.getBoundingClientRect = () => ({ top: 200, bottom: 240 });
+    w.__positionSuggestions();
+    assert.strictEqual(panel.dataset.placement, 'below');
+    assert.strictEqual(panel.style.maxHeight, '150px', 'keyboard-এর নিচে তালিকা চলে গেছে');
+    input.getBoundingClientRect = () => ({ top: 500, bottom: 540 });
+    w.visualViewport = { height: 600, offsetTop: 0 };
+    w.__positionSuggestions();
+    assert.strictEqual(panel.dataset.placement, 'above');
+    assert.strictEqual(panel.style.maxHeight, '230px');
+    assert.strictEqual(panel.style.bottom, 'calc(100% + 4px)');
+  });
+
   check('কোড সাজেশনে ট্যাপ করলে নাম/সেন্টার অটো-ফিল ও তালিকা বন্ধ', () => {
     $('#today-code-suggestions [data-today-suggestion]').click();
     assert.strictEqual($('#today-member-code').value, '0123');
@@ -103,6 +127,17 @@ setTimeout(() => {
     assert.strictEqual($('#today-member-name').value, 'Alpha Member');
     assert.strictEqual($('#today-center-code').value, '102');
     assert(panel.classList.contains('hidden'), 'নামের সাজেশন বন্ধ হয়নি');
+  });
+
+  check('Typing-এর সময় duplicate table অপ্রয়োজনীয় re-render হয় না', () => {
+    const input = $('#today-member-code');
+    const review = $('#duplicate-review-list');
+    review.innerHTML = '<tr id="duplicate-render-sentinel"></tr>';
+    input.focus();
+    input.value = '012';
+    input.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assert($('#duplicate-render-sentinel'), 'typing-এ duplicate table আবার render হয়েছে');
+    w.__renderDuplicateReview();
   });
 
   check('তালিকা খালি করলে যোগফলও শূন্য হয়', () => {
