@@ -114,7 +114,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.51';
+const APP_VER = 'v9.52';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -1814,8 +1814,7 @@ function renderTables() {
   $('#chip-paid strong').textContent = fmt(groups.paid.length);
   $('#chip-partial strong').textContent = fmt(groups.partial.length);
 
-  const hasData = state.rows.length > 0 || state.paidArchive.length > 0 || state.balanceRows.length > 0
-    || state.todayRows.length > 0 || state.history.length > 0;
+  const hasData = state.rows.length > 0 || state.paidArchive.length > 0 || state.balanceRows.length > 0;
   $('#no-data').classList.toggle('hidden', hasData);
   $$('[data-sec]').forEach((el) => el.classList.toggle('hidden', !hasData));
   const balancePage = state.activePage === 'balance-directory';
@@ -1825,7 +1824,7 @@ function renderTables() {
 }
 
 // কোন তালিকা দেখাবেন (সব / আজ প্রতিশ্রুতি / বাকী / আদায় / আংশিক)
-const SECTION_KEYS = ['today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive', 'duplicates'];
+const SECTION_KEYS = ['today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive'];
 
 /* সব তালিকা ডিফল্টে বন্ধ (collapsed) — মাথায় চাপ দিলে খোলে */
 function collapseAllSections() {
@@ -1845,11 +1844,7 @@ function applySectionView() {
   SECTION_KEYS.forEach((key) => {
     const el = $('#sec-' + key);
     if (!el) return;
-    const hasSectionData = key === 'balance-directory'
-      ? state.balanceRows.length > 0
-      : key === 'duplicates'
-        ? state.todayRows.length > 0 || state.history.length > 0
-        : installmentData;
+    const hasSectionData = key === 'balance-directory' ? state.balanceRows.length > 0 : installmentData;
     const show = hasSectionData && (view === 'all' || view === key);
     el.classList.toggle('hidden', !show);
     /* একক তালিকা বাছলে সেটা নিজে থেকেই খুলে যায় */
@@ -2693,13 +2688,13 @@ function pendingCollectionEntryIds() {
   });
   return ids;
 }
-/* Duplicate/conflict এখন review metadata মাত্র—কোনো entry auto-delete বা sync
-   block হয় না। Today + history-র role-visible সব ID এখানে দেখা যায়। */
+/* Duplicate/conflict review-এ সব ID দেখা যায়; কোনো entry auto-delete বা sync
+   block হয় না। ব্যবহারকারীর Edit/Delete existing stable action দিয়ে চলে। */
 function collectionDuplicateGroups() {
   const pending = pendingCollectionEntryIds();
   const entries = [
-    ...state.todayRows.map((item) => ({ item, source: 'Today' })),
-    ...state.history.map((item) => ({ item, source: 'হিসাবের খাতা' })),
+    ...state.todayRows.map((item, todayIndex) => ({ item, source: 'Today', todayIndex })),
+    ...state.history.map((item) => ({ item, source: 'হিসাবের খাতা', todayIndex: -1 })),
   ].filter(({ item }) => entryVisibleToIdentity(item));
   const grouped = new Map();
   entries.forEach((entry) => {
@@ -2723,6 +2718,15 @@ function duplicateEntryTime(value) {
   if (Number.isNaN(date.getTime())) return '—';
   return `${shortDate(value)} ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
 }
+function duplicateReviewActions(item, source, todayIndex) {
+  const allowed = source === 'Today' ? canEditEntry(item) : canEditHistoryEntry(item);
+  if (!allowed) return '<td class="row-actions">—</td>';
+  if (source === 'Today') {
+    return `<td class="row-actions"><button type="button" class="mini-btn edit" data-edit-today="${todayIndex}" title="এই এন্ট্রি এডিট করুন" aria-label="এই এন্ট্রি এডিট করুন">✏️</button><button type="button" class="mini-btn del" data-del-today="${todayIndex}" title="এই এন্ট্রি মুছে ফেলুন" aria-label="এই এন্ট্রি মুছে ফেলুন">🗑️</button></td>`;
+  }
+  const id = esc(item.id || '');
+  return `<td class="row-actions"><button type="button" class="mini-btn edit" data-edit-history="${id}" title="এই খাতার এন্ট্রি বদলান" aria-label="এই খাতার এন্ট্রি বদলান">✏️</button><button type="button" class="mini-btn del" data-del-history="${id}" title="এই খাতার এন্ট্রি মুছুন" aria-label="এই খাতার এন্ট্রি মুছুন">🗑️</button></td>`;
+}
 function renderDuplicateReview() {
   const body = $('#duplicate-review-list');
   if (!body) return;
@@ -2736,10 +2740,10 @@ function renderDuplicateReview() {
   const html = [];
   groups.forEach((group) => {
     const first = group.first;
-    html.push(`<tr class="duplicate-group-row" data-duplicate-group="${esc(group.key)}"><td colspan="9"><div class="duplicate-group-title"><strong>${esc(first.memberName || '—')}</strong><span>মেম্বার ${esc(displayMemberCode(first.memberCode))} · সেন্টার ${esc(displayCenterCode(first.centerCode))} · ${esc(shortDate(first.date))}</span><span class="badge ${group.exact ? '' : 'warn'}">${group.exact ? 'হুবহু duplicate' : '⚠️ Amount conflict'}</span><span>${fmt(group.entries.length)}টি entry</span></div></td></tr>`);
-    group.entries.forEach(({ item, source, pending }, index) => {
+    html.push(`<tr class="duplicate-group-row" data-duplicate-group="${esc(group.key)}"><td colspan="10"><div class="duplicate-group-title"><strong>${esc(first.memberName || '—')}</strong><span>মেম্বার ${esc(displayMemberCode(first.memberCode))} · সেন্টার ${esc(displayCenterCode(first.centerCode))} · ${esc(shortDate(first.date))}</span><span class="badge ${group.exact ? '' : 'warn'}">${group.exact ? 'হুবহু duplicate' : '⚠️ Amount conflict'}</span><span>${fmt(group.entries.length)}টি entry</span></div></td></tr>`);
+    group.entries.forEach(({ item, source, pending, todayIndex }, index) => {
       const device = String(item.ownerDevice || '');
-      html.push(`<tr class="duplicate-entry-row" data-entry-id="${esc(item.id || '')}"><td>${fmt(index + 1)}</td><td>${esc(source)}${pending ? '<span class="duplicate-pending">⏳ sync বাকী</span>' : ''}</td><td>${esc(entryOwnerStaff(item) || '—')}</td><td class="duplicate-device" title="${esc(device)}">${esc(device ? device.slice(-6) : '—')}</td><td>${esc(duplicateEntryTime(item.createdAt))}</td><td class="amt">${fmtMoney(num(item.loan))}</td><td class="amt">${fmtMoney(num(item.savings))}</td><td class="amt">${fmtMoney(num(item.dps))}</td><td class="amt">${fmtMoney(num(item.total))}</td></tr>`);
+      html.push(`<tr class="duplicate-entry-row" data-entry-id="${esc(item.id || '')}" data-entry-source="${esc(source)}"><td>${fmt(index + 1)}</td><td>${esc(source)}${pending ? '<span class="duplicate-pending">⏳ sync বাকী</span>' : ''}</td><td>${esc(entryOwnerStaff(item) || '—')}</td><td class="duplicate-device" title="${esc(device)}">${esc(device ? device.slice(-6) : '—')}</td><td>${esc(duplicateEntryTime(item.createdAt))}</td><td class="amt">${fmtMoney(num(item.loan))}</td><td class="amt">${fmtMoney(num(item.savings))}</td><td class="amt">${fmtMoney(num(item.dps))}</td><td class="amt">${fmtMoney(num(item.total))}</td>${duplicateReviewActions(item, source, todayIndex)}</tr>`);
     });
   });
   body.innerHTML = html.join('');
@@ -2902,6 +2906,7 @@ function renderToday() {
   toggleEmpty('#today-monthly-empty', monthly.length === 0);
   toggleEmpty('#today-other-empty', others.length === 0);
   renderTodayBalanceCard();
+  renderDuplicateReview();
 }
 /* ---------- Today All Collection: এন্ট্রি এডিট / ডিলিট ---------- */
 function revertAppliedLoan(item, d = state.detect) {
@@ -3759,7 +3764,6 @@ function renderActivePage() {
   } else {
     renderTables();
     if (state.activePage === 'balance-directory') renderBalanceDirectory();
-    if (state.activePage === 'duplicates' || state.sectionView === 'all') renderDuplicateReview();
   }
 }
 function showPage(page, silent = false, alreadyRendered = false) {
@@ -4186,6 +4190,18 @@ function bindEvents() {
     if (editBtn) { e.stopPropagation(); startEditHistory(editBtn.dataset.editHistory); return; }
     const delBtn = e.target.closest('[data-del-history]');
     if (delBtn) { e.stopPropagation(); deleteHistoryRow(delBtn.dataset.delHistory); return; }
+  });
+  /* Duplicate review-এর button-ও একই stable ID/index-based existing action ব্যবহার করে।
+     এখানে কোনো automatic remove নেই; Delete-এ existing confirmation ও outbox sync চলে। */
+  $('#duplicate-review-list')?.addEventListener('click', (e) => {
+    const editToday = e.target.closest('[data-edit-today]');
+    if (editToday) { e.stopPropagation(); startEditToday(Number(editToday.dataset.editToday)); return; }
+    const delToday = e.target.closest('[data-del-today]');
+    if (delToday) { e.stopPropagation(); deleteTodayRow(Number(delToday.dataset.delToday)); return; }
+    const editHistory = e.target.closest('[data-edit-history]');
+    if (editHistory) { e.stopPropagation(); startEditHistory(editHistory.dataset.editHistory); return; }
+    const delHistory = e.target.closest('[data-del-history]');
+    if (delHistory) { e.stopPropagation(); deleteHistoryRow(delHistory.dataset.delHistory); return; }
   });
   $('#btn-clear-history-date').addEventListener('click', () => { $('#history-date').value=''; renderHistory(); });
 

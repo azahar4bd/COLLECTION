@@ -50,18 +50,26 @@ setTimeout(() => {
     assert(!w.document.querySelector('main').contains(nav));
   });
 
+  check('Duplicate review Today Collection-এ হিসাব ক্লোজের ঠিক নিচে; Member List-এ নয়', () => {
+    const card = $('#duplicate-review-card');
+    assert(card && $('#today-page').contains(card));
+    assert(!$('#installment-page').contains(card));
+    assert(card.previousElementSibling.classList.contains('today-close-bar'));
+    assert(!$('#section-view-filter option[value="duplicates"]'));
+    assert($('#duplicate-review-table thead').textContent.includes('কাজ'));
+  });
+
   check('Member List dropdown-এ সব তালিকা নির্বাচনের option আছে', () => {
     const select = $('#section-view-filter');
     assert(select && !$('.member-list-picker').classList.contains('hidden'));
     assert.deepStrictEqual([...select.options].map(option => option.value), [
-      'all', 'today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive', 'duplicates',
+      'all', 'today-promise', 'payable', 'due', 'paid', 'partial', 'balance-directory', 'paid-archive',
     ]);
   });
 
   const pages = [
     ['today-promise', 'sec-today-promise'], ['payable', 'sec-payable'], ['due', 'sec-due'],
     ['paid', 'sec-paid'], ['partial', 'sec-partial'], ['balance-directory', 'sec-balance-directory'], ['paid-archive', 'sec-paid-archive'],
-    ['duplicates', 'sec-duplicates'],
   ];
   for (const [page, section] of pages) {
     check(`Member List dropdown → ${page}: শুধু সেই তালিকা`, () => {
@@ -87,9 +95,9 @@ setTimeout(() => {
     assert(!visible('#installment-page'));
     $('[data-main-page="members"]').click();
     assert(visible('#installment-page'));
-    assert(visible('#sec-duplicates'));
-    assert.strictEqual(w.__state.activePage, 'duplicates');
-    assert.strictEqual($('#section-view-filter').value, 'duplicates');
+    assert(visible('#sec-paid-archive'));
+    assert.strictEqual(w.__state.activePage, 'paid-archive');
+    assert.strictEqual($('#section-view-filter').value, 'paid-archive');
   });
 
   check('Member List-এর সব তালিকা (পরপর) option অপরিবর্তিত', () => {

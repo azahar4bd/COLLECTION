@@ -92,10 +92,11 @@ setTimeout(async () => {
     catch (e) { results.push(`❌ ${name} → ${e.message}`); process.exitCode = 1; }
   };
 
-  await check('হিসাব ক্লোজ + আনডো হিসাবের খাতার ঠিক আগে', async () => {
+  await check('হিসাব ক্লোজ + আনডোর নিচে duplicate review, তারপর হিসাবের খাতা', async () => {
     const bar = $('.today-close-bar');
     assert(bar, 'Close bar নেই');
-    assert.strictEqual(bar.nextElementSibling?.id, 'history-card', 'Close bar খাতার আগে নেই');
+    assert.strictEqual(bar.nextElementSibling?.id, 'duplicate-review-card', 'Duplicate review Close-এর ঠিক নিচে নেই');
+    assert.strictEqual(bar.nextElementSibling?.nextElementSibling?.id, 'history-card', 'হিসাবের খাতা duplicate review-এর পরে নেই');
     assert(bar.querySelector('#btn-close-today'), 'Close button নেই');
     assert(bar.querySelector('#btn-undo-close'), 'Undo button নেই');
     assert.strictEqual($('#btn-undo-close').disabled, true, 'খালি history-তে Undo enabled');

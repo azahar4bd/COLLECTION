@@ -1,4 +1,4 @@
-/* v9.51: every distinct entry syncs; duplicate/conflict review is informational only. */
+/* v9.52: every distinct entry syncs; Today duplicate review supports stable Edit/Delete actions. */
 const fs = require('fs');
 const assert = require('assert');
 const { JSDOM } = require('jsdom');
@@ -136,7 +136,7 @@ async function exactOfflineEntriesSurvive() {
   const offlineTwo = await env.add(b, 40);
   assert.strictEqual(b.state.todayRows.length, 2, 'offline exact entry was blocked or removed');
   assert.strictEqual(b.state.outbox.length, 2, 'offline ordered operations were not preserved');
-  b.w.__showPage('duplicates');
+  b.w.__showPage('today');
   assert.strictEqual(b.w.__duplicateGroups()[0].entries.length, 2);
   assert.strictEqual(b.w.document.querySelectorAll('.duplicate-pending').length, 2, 'offline pending state is not visible');
 
@@ -160,7 +160,7 @@ async function exactOfflineEntriesSurvive() {
   await reloaded.w.__load(true);
   assert.strictEqual(reloaded.state.todayRows.length, 3, 'reload lost an offline/synced entry');
   assert.strictEqual(reloaded.state.outbox.length, 0);
-  reloaded.w.__showPage('duplicates');
+  reloaded.w.__showPage('today');
   assert.strictEqual(reloaded.w.document.querySelectorAll('.duplicate-entry-row').length, 3);
   return 'exact duplicates from offline/online devices all sync, survive reload, and remain reviewable';
 }
@@ -182,7 +182,7 @@ async function amountConflictStillSyncs() {
   assert.strictEqual(ids.length, 2, 'amount conflict was blocked');
   assert(ids.includes(first) && ids.includes(second));
   assert.strictEqual(env.remote.current.rows[0][5], '100');
-  b.w.__showPage('duplicates');
+  b.w.__showPage('today');
   const group = b.w.__duplicateGroups()[0];
   assert(group && !group.exact && group.entries.length === 2);
   assert(b.w.document.querySelector('.duplicate-group-row').textContent.includes('Amount conflict'));
@@ -203,7 +203,7 @@ async function todayAndHistoryShareReviewTable() {
   assert.strictEqual(a.state.history.length, 2, 'Close did not preserve both entries');
   await env.add(a, 40);
   await a.w.__flush();
-  a.w.__showPage('duplicates');
+  a.w.__showPage('today');
   const groups = a.w.__duplicateGroups();
   assert.strictEqual(groups.length, 1);
   assert.strictEqual(groups[0].entries.length, 3);
@@ -211,11 +211,67 @@ async function todayAndHistoryShareReviewTable() {
   assert(groups[0].entries.some((entry) => entry.source === 'Today'));
   assert(groups[0].entries.filter((entry) => entry.source === 'হিসাবের খাতা').length === 2);
   assert.strictEqual(a.w.document.querySelectorAll('.duplicate-entry-row').length, 3);
-  return 'Today and হিসাবের খাতা entries appear together without changing Close/account behavior';
+  const historyRow = a.w.document.querySelector('.duplicate-entry-row[data-entry-source="হিসাবের খাতা"]');
+  const historyId = historyRow.dataset.entryId;
+  const deletedLoan = Number(a.state.history.find((item) => String(item.id) === historyId).loan);
+  const survivingTodayId = String(a.state.todayRows[0].id);
+  historyRow.querySelector('[data-edit-history]').click();
+  assert.strictEqual(a.state.editingHistoryId, historyId, 'history Edit did not use the stable ID');
+  a.w.document.querySelector('#btn-cancel-edit').click();
+  const refreshedHistoryRow = a.w.document.querySelector(`.duplicate-entry-row[data-entry-id="${historyId}"]`);
+  refreshedHistoryRow.querySelector('[data-del-history]').click();
+  await waitFor(() => a.state.history.length === 1, 'confirmed history delete');
+  await a.w.__flush();
+  assert.strictEqual(a.state.todayRows.length, 1, 'unrelated Today entry was lost');
+  assert.strictEqual(env.remote.current.history.length, 1);
+  assert.strictEqual(env.remote.current.dailyData.todayRows.length, 1);
+  assert.notStrictEqual(String(env.remote.current.history[0].id), historyId, 'confirmed history target was not deleted');
+  assert.strictEqual(String(env.remote.current.dailyData.todayRows[0].id), survivingTodayId);
+  assert.strictEqual(env.remote.current.rows[0][5], String(95 - deletedLoan), 'history delete reversed the wrong installment amount');
+  return 'Today and হিসাবের খাতা share review; history Edit/Delete preserve unrelated entries and Actual';
+}
+
+async function reviewTodayEditDeleteActions() {
+  const env = makeEnvironment();
+  const a = await env.createDevice('actions-a');
+  const first = await env.add(a, 40);
+  const second = await env.add(a, 40);
+  await a.w.__flush();
+  a.w.__showPage('today');
+  assert.strictEqual(a.w.document.querySelectorAll('.duplicate-entry-row').length, 2);
+  const originalIdentity = a.state.identity;
+  a.state.identity = { role: 'manager', staff: '', label: 'Manager' };
+  a.w.__renderDuplicateReview();
+  assert.strictEqual(a.w.document.querySelectorAll('#duplicate-review-list [data-edit-today], #duplicate-review-list [data-del-today]').length, 0, 'Manager got write actions');
+  a.state.identity = originalIdentity;
+  a.w.__renderDuplicateReview();
+
+  const firstRow = a.w.document.querySelector(`.duplicate-entry-row[data-entry-id="${first}"]`);
+  firstRow.querySelector('[data-edit-today]').click();
+  assert.strictEqual(a.state.editingTodayId, first, 'Today Edit did not retain the stable ID');
+  const $ = (selector) => a.w.document.querySelector(selector);
+  $('#today-loan').value = '50';
+  $('#today-total').value = '50';
+  await a.w.__add();
+  await a.w.__flush();
+  assert.strictEqual(a.state.todayRows.length, 2, 'Edit created a duplicate instead of updating');
+  assert.strictEqual(new Set(todayIds(env.remote.current)).size, 2);
+  assert(todayIds(env.remote.current).includes(first) && todayIds(env.remote.current).includes(second));
+  assert.strictEqual(env.remote.current.rows[0][5], '90', 'Edit did not preserve the other entry/Actual');
+
+  const secondRow = a.w.document.querySelector(`.duplicate-entry-row[data-entry-id="${second}"]`);
+  secondRow.querySelector('[data-del-today]').click();
+  await waitFor(() => a.state.todayRows.length === 1, 'confirmed Today delete');
+  await a.w.__flush();
+  assert.strictEqual(todayIds(env.remote.current).length, 1);
+  assert.strictEqual(todayIds(env.remote.current)[0], first, 'the wrong duplicate entry was deleted');
+  assert.strictEqual(a.state.todayRows[0].id, first);
+  assert.strictEqual(env.remote.current.rows[0][5], '50', 'Delete reversed the wrong installment amount');
+  return 'review Edit keeps the same ID; confirmed Delete removes only its target and preserves the survivor';
 }
 
 (async () => {
-  const tests = [exactOfflineEntriesSurvive, amountConflictStillSyncs, todayAndHistoryShareReviewTable];
+  const tests = [exactOfflineEntriesSurvive, amountConflictStillSyncs, todayAndHistoryShareReviewTable, reviewTodayEditDeleteActions];
   let failed = 0;
   for (const test of tests) {
     try { console.log('✅ ' + await test()); }
