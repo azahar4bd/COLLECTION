@@ -114,7 +114,7 @@ function toast(msg, isErr = false) {
 
 /* ---------------- Settings: Neon is the only data store ---------------- */
 const SET_KEY = 'collectionManager.settings.v1';
-const APP_VER = 'v9.53';
+const APP_VER = 'v9.54';
 // নতুন ভার্সন প্রকাশের পরে খোলা থাকা ট্যাবে পুরোনো app.js ক্যাশ থেকে চলতে না পারে —
 // একবার রিফ্রেশ করে নতুন অ্যাসেট আনা হয় (প্রথমবার লোডে রিফ্রেশ হয় না)।
 try {
@@ -706,7 +706,37 @@ function paidArchiveBaseKey(row) {
   if (loanId) return `loan:${loanId}|member:${member}|due:${dueDate}`;
   return `member:${member}|due:${dueDate}|center:${center}|amount:${amount}`;
 }
+/* একই rows snapshot-এর archive key একবারই বানাই। আগে প্রতিটি row-এর জন্য
+   আগের সব row আবার scan হতো (O(n²)); occurrence rank ও key format একই আছে। */
+let paidArchiveKeyCache = null;
+function getPaidArchiveKeyCache() {
+  const d = state.detect;
+  if (paidArchiveKeyCache
+    && paidArchiveKeyCache.rows === state.rows
+    && paidArchiveKeyCache.length === state.rows.length
+    && paidArchiveKeyCache.headers === state.headers
+    && paidArchiveKeyCache.memberColumn === d.memberCode
+    && paidArchiveKeyCache.centerColumn === d.centerCode
+    && paidArchiveKeyCache.dateColumn === d.date
+    && paidArchiveKeyCache.amountColumn === d.amount) return paidArchiveKeyCache;
+  const byRow = new WeakMap(), counts = new Map();
+  state.rows.forEach((row) => {
+    const base = paidArchiveBaseKey(row);
+    const occurrence = counts.get(base) || 0;
+    counts.set(base, occurrence + 1);
+    byRow.set(row, `${base}|occ:${occurrence}`);
+  });
+  paidArchiveKeyCache = {
+    rows: state.rows, length: state.rows.length, headers: state.headers,
+    memberColumn: d.memberCode, centerColumn: d.centerCode,
+    dateColumn: d.date, amountColumn: d.amount, byRow,
+  };
+  return paidArchiveKeyCache;
+}
 function paidArchiveKey(row) {
+  const cached = getPaidArchiveKeyCache().byRow.get(row);
+  if (cached) return cached;
+  /* External row-এর পুরোনো fallback; normal app path-এ সব key cache থেকে আসে। */
   const base = paidArchiveBaseKey(row);
   let occurrence = 0;
   for (const candidate of state.rows) {
@@ -1334,7 +1364,7 @@ function renderSection(key, rows) {
   const shown = rows.slice(0, RENDER_CAP);
   tbody.innerHTML = shown.map((r) => {
     const cells = cols.map((c) => cellHTML(r, c)).join('');
-    const rowIndex = state.rows.indexOf(r);
+    const rowIndex = getInstallmentMemberLookup().byRowIndex.get(r) ?? -1;
     const followup=getFollowup(r);
     // এই ঘরটি শুধু ইউজার নিজে হাতে লেখা প্রতিশ্রুতি / পরবর্তী তারিখ দেখায় — নিজে থেকে কোনো তারিখ বসানো হয় না
     const followupCell=showFollowup?`<td class="followup-cell">${followup?`<span class="followup-preview">${followup.promise?esc(followup.promise):''}${followup.nextDate?`<small>📅 ${esc(shortDate(followup.nextDate))}</small>`:''}</span>`:'<span class="followup-empty">—</span>'}<button class="followup-btn" type="button" data-followup-index="${rowIndex}" title="প্রতিশ্রুতি / পরবর্তী তারিখ লিখুন">📝 ${followup?'সম্পাদনা':'লিখুন'}</button></td>`:'';
@@ -1390,16 +1420,17 @@ function normalizeTodayAmountInputs() {
 function setTodayAmountNote(message = TODAY_AMOUNT_HINT, isError = false) {
   const note = $('#today-amount-note');
   if (!note) return;
-  note.textContent = message;
-  note.classList.toggle('error', Boolean(isError));
+  if (note.textContent !== message) note.textContent = message;
+  if (note.classList.contains('error') !== Boolean(isError)) note.classList.toggle('error', Boolean(isError));
+}
+function setTodayAmountAutoState(input, enabled) {
+  if (!input) return;
+  const value = enabled ? '1' : '0';
+  if (input.dataset.autoCalc !== value) input.dataset.autoCalc = value;
+  if (input.classList.contains('auto-calculated') !== enabled) input.classList.toggle('auto-calculated', enabled);
 }
 function resetTodayAmountAuto() {
-  TODAY_AMOUNT_KEYS.forEach((key) => {
-    const input = todayAmountInput(key);
-    if (!input) return;
-    input.dataset.autoCalc = '0';
-    input.classList.remove('auto-calculated');
-  });
+  TODAY_AMOUNT_KEYS.forEach((key) => setTodayAmountAutoState(todayAmountInput(key), false));
   setTodayAmountNote();
 }
 function autoCalculateTodayAmounts(changedKey = '') {
@@ -1408,10 +1439,7 @@ function autoCalculateTodayAmounts(changedKey = '') {
   normalizeTodayAmountInputs();
   const clearedAutoKey = changedKey && fields[changedKey]?.dataset.autoCalc === '1'
     && String(fields[changedKey].value || '').trim() === '' ? changedKey : '';
-  if (changedKey && fields[changedKey]) {
-    fields[changedKey].dataset.autoCalc = '0';
-    fields[changedKey].classList.remove('auto-calculated');
-  }
+  if (changedKey && fields[changedKey]) setTodayAmountAutoState(fields[changedKey], false);
   const filled = (key) => String(fields[key].value || '').trim() !== '';
   let autoKey = TODAY_AMOUNT_KEYS.find((key) => fields[key].dataset.autoCalc === '1') || '';
   let target = '';
@@ -1423,8 +1451,7 @@ function autoCalculateTodayAmounts(changedKey = '') {
     else {
       // উৎসের ঘর মুছে ফেললে পুরোনো auto মানটি আর রাখি না—স্টেল হিসাব থেকে যায় না।
       fields[autoKey].value = '';
-      fields[autoKey].dataset.autoCalc = '0';
-      fields[autoKey].classList.remove('auto-calculated');
+      setTodayAmountAutoState(fields[autoKey], false);
       autoKey = '';
     }
   }
@@ -1448,18 +1475,17 @@ function autoCalculateTodayAmounts(changedKey = '') {
       .reduce((sum, key) => sum + num(fields[key].value), 0));
   if (value < 0) {
     fields[target].value = '';
-    fields[target].dataset.autoCalc = '1';
-    fields[target].classList.remove('auto-calculated');
+    if (fields[target].dataset.autoCalc !== '1') fields[target].dataset.autoCalc = '1';
+    if (fields[target].classList.contains('auto-calculated')) fields[target].classList.remove('auto-calculated');
     setTodayAmountNote(`⚠️ মোট অন্য ঘরগুলোর যোগফলের চেয়ে কম—${TODAY_AMOUNT_LABELS[target]} হিসাব করা যাচ্ছে না।`, true);
     return '';
   }
   if (Object.is(value, -0)) value = 0;
   TODAY_AMOUNT_KEYS.forEach((key) => {
-    if (key !== target) fields[key].dataset.autoCalc = '0';
+    if (key !== target && fields[key].dataset.autoCalc !== '0') fields[key].dataset.autoCalc = '0';
   });
-  fields[target].value = String(value);
-  fields[target].dataset.autoCalc = '1';
-  fields[target].classList.add('auto-calculated');
+  if (fields[target].value !== String(value)) fields[target].value = String(value);
+  setTodayAmountAutoState(fields[target], true);
   setTodayAmountNote();
   return target;
 }
@@ -1683,15 +1709,43 @@ function openMemberDetailsFromRow(rowIndex) {
 }
 
 
+/* Stable installment key-এর signature/hash/duplicateRank অপরিবর্তিত। Rows snapshot
+   একবার index হলে পরের lookup O(1); paidDate বদলালে cache স্পষ্টভাবে invalid হয়। */
+let installmentRowKeyCache = null;
+function invalidateInstallmentRowKeyCache() { installmentRowKeyCache = null; }
+function installmentRowSignature(row) {
+  const d = state.detect;
+  return JSON.stringify(row.map((value, index) => index === d.actual ? '' : String(value ?? '')));
+}
+function installmentRowHash(signature) {
+  let hash = 2166136261;
+  for (let i = 0; i < signature.length; i++) { hash ^= signature.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+  return (hash >>> 0).toString(36);
+}
+function getInstallmentRowKeyCache() {
+  if (installmentRowKeyCache
+    && installmentRowKeyCache.rows === state.rows
+    && installmentRowKeyCache.length === state.rows.length
+    && installmentRowKeyCache.actualColumn === state.detect.actual) return installmentRowKeyCache;
+  const byRow = new WeakMap(), byKey = new Map(), counts = new Map();
+  state.rows.forEach((row, index) => {
+    const signature = installmentRowSignature(row);
+    const duplicateRank = counts.get(signature) || 0;
+    counts.set(signature, duplicateRank + 1);
+    const key = `${installmentRowHash(signature)}:${duplicateRank}`;
+    byRow.set(row, key);
+    byKey.set(key, index);
+  });
+  installmentRowKeyCache = {
+    rows: state.rows, length: state.rows.length,
+    actualColumn: state.detect.actual, byRow, byKey,
+  };
+  return installmentRowKeyCache;
+}
 function installmentRowKey(row) {
-  const d=state.detect;
-  const signature=JSON.stringify(row.map((value,index)=>index===d.actual?'':String(value??'')));
-  let hash=2166136261;
-  for(let i=0;i<signature.length;i++){hash^=signature.charCodeAt(i);hash=Math.imul(hash,16777619);}
-  const base=(hash>>>0).toString(36);
-  const rowIndex=state.rows.indexOf(row);
-  const duplicateRank=rowIndex<0?0:state.rows.slice(0,rowIndex).filter(candidate=>JSON.stringify(candidate.map((value,index)=>index===d.actual?'':String(value??'')))===signature).length;
-  return `${base}:${duplicateRank}`;
+  const cached = getInstallmentRowKeyCache().byRow.get(row);
+  if (cached) return cached;
+  return `${installmentRowHash(installmentRowSignature(row))}:0`;
 }
 
 
@@ -1797,12 +1851,15 @@ function renderTables() {
     return !!followup && String(followup.nextDate || '').slice(0, 10) === today;
   });
 
-  renderSection('today-promise', todayPromises);   // আজ প্রতিশ্রুতি (সবার উপরে)
-  renderSection('payable', payable);               // আজ আদায়যোগ্য (আজ প্রতিশ্রুতি ও বাকী কিস্তির মাঝে)
-  renderSection('due', groups.due);
-  renderSection('paid', groups.paid);
-  renderSection('partial', groups.partial);
-  renderPaidArchive();
+  /* নির্দিষ্ট dropdown section খোলা থাকলে hidden table-গুলোর বড় HTML বানানোর
+     দরকার নেই। Section বদলালে showPage → renderTables আবার ঠিক তালিকাটি তৈরি করে। */
+  const sectionToRender = SECTION_KEYS.includes(state.activePage) ? state.activePage : 'all';
+  if (sectionToRender === 'all' || sectionToRender === 'today-promise') renderSection('today-promise', todayPromises);
+  if (sectionToRender === 'all' || sectionToRender === 'payable') renderSection('payable', payable);
+  if (sectionToRender === 'all' || sectionToRender === 'due') renderSection('due', groups.due);
+  if (sectionToRender === 'all' || sectionToRender === 'paid') renderSection('paid', groups.paid);
+  if (sectionToRender === 'all' || sectionToRender === 'partial') renderSection('partial', groups.partial);
+  if (sectionToRender === 'all' || sectionToRender === 'paid-archive') renderPaidArchive();
 
   const todayLabel = shortDate(today);
   const dateBadge = $('#today-promise-date');
@@ -1875,19 +1932,57 @@ function memberHeadersRow(rows) {
       && n.some((x) => x.includes('contact') || x.includes('mobile'));
   });
 }
+/* Directory-এর exact/short/suffix search fields একবার তৈরি করি। আগে প্রতিটি
+   keystroke ও balance row-এর জন্য 900+ row বারবার normalize হতো। */
+let directoryLookupCache = null;
+function getDirectoryLookup() {
+  const codeIndex = memberCol(state.memberDBHeaders, 'code');
+  const nameIndex = memberCol(state.memberDBHeaders, 'name');
+  const centerIndex = memberCol(state.memberDBHeaders, 'center');
+  if (directoryLookupCache
+    && directoryLookupCache.rows === state.memberDB
+    && directoryLookupCache.length === state.memberDB.length
+    && directoryLookupCache.headers === state.memberDBHeaders
+    && directoryLookupCache.codeIndex === codeIndex
+    && directoryLookupCache.nameIndex === nameIndex
+    && directoryLookupCache.centerIndex === centerIndex) return directoryLookupCache;
+  const exact = new Map(), short = new Map(), suffix = new Map(), searchRows = [];
+  const add = (map, key, row) => {
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(row);
+  };
+  state.memberDB.forEach((row, index) => {
+    const rawCode = codeIndex >= 0 ? String(row[codeIndex] || '').trim() : '';
+    const rawDigits = normalizedDigits(rawCode);
+    const fullKey = rawDigits.replace(/^0+/, '');
+    if (!exact.has(fullKey)) exact.set(fullKey, row);
+    const code = displayMemberCode(rawCode);
+    add(short, code, row);
+    for (let length = 3; length <= rawDigits.length; length++) add(suffix, rawDigits.slice(-length), row);
+    const name = nameIndex >= 0 ? String(row[nameIndex] || '').trim() : '';
+    const center = centerIndex >= 0 ? displayCenterCode(String(row[centerIndex] || '').split(',')[0]) : '';
+    searchRows.push({ index, row, rawCode, rawDigits, code, shortDigits: normalizedDigits(code), name, nameNorm: norm(name), center });
+  });
+  directoryLookupCache = {
+    rows: state.memberDB, length: state.memberDB.length, headers: state.memberDBHeaders,
+    codeIndex, nameIndex, centerIndex, exact, short, suffix, searchRows,
+  };
+  return directoryLookupCache;
+}
 function findDirectoryMember(code, centerHint = '') {
   const idx = memberCol(state.memberDBHeaders, 'code');
   if (idx < 0 || !code) return null;
+  const lookup = getDirectoryLookup();
   const digits = normalizedDigits(code);
   const key = digits.replace(/^0+/, '');
-  const exact = state.memberDB.find((row) => normalizedDigits(row[idx]).replace(/^0+/, '') === key);
+  const exact = lookup.exact.get(key);
   if (exact) return exact;
   // Balance CSV-র ছোট Member ID-ও full directory Member No-র শেষাংশ হতে পারে।
   if (digits.length < 3) return null;
-  let candidates = state.memberDB.filter((row) => normalizedDigits(row[idx]).endsWith(digits));
+  let candidates = lookup.suffix.get(digits) || [];
   const typedCenter = normalizedDigits(centerHint || state.todayRawCenter || $('#today-center-code')?.value || '');
   if (typedCenter && candidates.length > 1) {
-    const centerIndex = memberCol(state.memberDBHeaders, 'center');
+    const centerIndex = lookup.centerIndex;
     const byCenter = candidates.filter((row) => {
       const center = normalizedDigits(String(row[centerIndex] || '').split(',')[0]);
       return center === typedCenter || (typedCenter.length >= 3 && center.endsWith(typedCenter));
@@ -1901,6 +1996,7 @@ function findDirectoryMember(code, centerHint = '') {
 function resolveDirectoryRow(typed, centerHint = '', { allowSuffix = true } = {}) {
   const idx = memberCol(state.memberDBHeaders, 'code');
   if (idx < 0 || !typed) return null;
+  const lookup = getDirectoryLookup();
   const digits = normalizedDigits(typed);
   const pickByCenter = (matches) => {
     if (matches.length === 1) return matches[0];
@@ -1920,7 +2016,7 @@ function resolveDirectoryRow(typed, centerHint = '', { allowSuffix = true } = {}
   // ছোট (৪ সংখ্যা) কোড লিখলে প্রথমে UI-তে দেখানো শেষ ৪ সংখ্যার সাথে মেলানো।
   if (digits.length <= 4) {
     const short = toEn(String(typed)).trim();
-    const matches = state.memberDB.filter((row) => displayMemberCode(row[idx]) === short);
+    const matches = lookup.short.get(short) || [];
     const hit = pickByCenter(matches);
     if (hit) return hit;
   }
@@ -1929,7 +2025,7 @@ function resolveDirectoryRow(typed, centerHint = '', { allowSuffix = true } = {}
   if (!allowSuffix) {
     if (!digits) return null;
     const key = digits.replace(/^0+/, '');
-    return state.memberDB.find((row) => normalizedDigits(row[idx]).replace(/^0+/, '') === key) || null;
+    return lookup.exact.get(key) || null;
   }
   return findDirectoryMember(typed, centerHint);
 }
@@ -1976,7 +2072,7 @@ function fillTodayMember({ allowSuffix = true } = {}) {
   if (row && !directoryRowVisible(row)) {
     state.todayRawCenter = ''; state.todayRawMember = '';
     $('#today-member-name').value = '';
-    updateTodayEntryNote(); renderToday();
+    updateTodayEntryNote(); renderTodayBalanceCard();
     toast('এই সদস্য নির্বাচিত Staff-এর তালিকায় নেই।', true);
     return;
   }
@@ -1993,7 +2089,7 @@ function fillTodayMember({ allowSuffix = true } = {}) {
         autoCalculateTodayAmounts(); renderTodayBalanceCard();
       }
     }
-    updateTodayEntryNote(); renderToday(); return;
+    updateTodayEntryNote(); renderTodayBalanceCard(); return;
   }
   const ci = memberCol(state.memberDBHeaders, 'center'), ni = memberCol(state.memberDBHeaders, 'name');
   if (ci >= 0) {
@@ -2010,7 +2106,8 @@ function fillTodayMember({ allowSuffix = true } = {}) {
   }
   autofillTodayLoan(state.todayRawMember || code);
   updateTodayEntryNote();
-  renderToday();
+  /* Saved entries এই typing-এ বদলায় না—Today/History/duplicate tables আবার
+     render না করে শুধু form-এর balance card আগেই update হয়েছে। */
 }
 /* Details → আদায় থেকে আসলে clicked row-টিই target হয়; member বদলালে target বাতিল। */
 function targetedTodayInstallmentRow(code, centerCode = '') {
@@ -2124,22 +2221,31 @@ function renderTodaySuggestions(kind) {
   const digits = normalizedDigits(query);
   if (!query || (isCode && !digits)) return [];
 
-  const codeIndex = memberCol(state.memberDBHeaders, 'code');
-  const nameIndex = memberCol(state.memberDBHeaders, 'name');
-  const centerIndex = memberCol(state.memberDBHeaders, 'center');
-  if (codeIndex < 0 || (!isCode && nameIndex < 0)) return [];
+  const lookup = getDirectoryLookup();
+  if (lookup.codeIndex < 0 || (!isCode && lookup.nameIndex < 0)) return [];
 
-  const matches = [];
-  for (let index = 0; index < state.memberDB.length; index++) {
-    const row = state.memberDB[index];
+  let matchCount = 0;
+  const shown = [];
+  const compareSuggestions = (a, b) => a.score - b.score
+    || (isCode ? compareMemberCodes(a.rawCode, b.rawCode) : compareAZ(a.name, b.name))
+    || compareAZ(a.center, b.center);
+  const keepTopSuggestion = (item) => {
+    /* Full matching list sort নয়—stable order রেখে শুধু প্রথম ৮টি রাখি। */
+    let low = 0, high = shown.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (compareSuggestions(item, shown[middle]) < 0) high = middle;
+      else low = middle + 1;
+    }
+    if (low >= TODAY_SUGGESTION_LIMIT) return;
+    shown.splice(low, 0, item);
+    if (shown.length > TODAY_SUGGESTION_LIMIT) shown.length = TODAY_SUGGESTION_LIMIT;
+  };
+  for (const entry of lookup.searchRows) {
+    const { index, row, rawCode, rawDigits, code, shortDigits, name, nameNorm, center } = entry;
     if (!directoryRowVisible(row)) continue;
-    const rawCode = String(row[codeIndex] || '').trim();
-    const code = displayMemberCode(rawCode);
-    const name = nameIndex >= 0 ? String(row[nameIndex] || '').trim() : '';
-    const center = centerIndex >= 0 ? displayCenterCode(String(row[centerIndex] || '').split(',')[0]) : '';
     let score = -1;
     if (isCode) {
-      const rawDigits = normalizedDigits(rawCode), shortDigits = normalizedDigits(code);
       if (rawDigits === digits || shortDigits === digits) score = 0;
       else if (shortDigits.startsWith(digits)) score = 1;
       else if (rawDigits.startsWith(digits)) score = 2;
@@ -2147,24 +2253,22 @@ function renderTodaySuggestions(kind) {
       else if (rawDigits.endsWith(digits)) score = 4;
       else if (rawDigits.includes(digits)) score = 5;
     } else {
-      const candidate = norm(name);
-      if (candidate === query) score = 0;
-      else if (candidate.startsWith(query)) score = 1;
-      else if (candidate.includes(query)) score = 2;
+      if (nameNorm === query) score = 0;
+      else if (nameNorm.startsWith(query)) score = 1;
+      else if (nameNorm.includes(query)) score = 2;
     }
-    if (score >= 0) matches.push({ index, score, rawCode, code, name, center });
+    if (score >= 0) {
+      matchCount += 1;
+      keepTopSuggestion({ index, score, rawCode, code, name, center });
+    }
   }
-  matches.sort((a, b) => a.score - b.score
-    || (isCode ? compareMemberCodes(a.rawCode, b.rawCode) : compareAZ(a.name, b.name))
-    || compareAZ(a.center, b.center));
-  const shown = matches.slice(0, TODAY_SUGGESTION_LIMIT);
   if (!shown.length) return [];
   panel.innerHTML = shown.map((item) => `<button type="button" class="today-suggestion" role="option" aria-selected="false" data-today-suggestion="${item.index}" data-suggestion-kind="${kind}">
       <span class="today-suggestion-code">${esc(item.code || '—')}</span>
       <span class="today-suggestion-name">${esc(item.name || '—')}</span>
       <span class="today-suggestion-center">সেন্টার ${esc(item.center || '—')}</span>
     </button>`).join('')
-    + (matches.length > shown.length ? `<div class="today-suggestion-more">আরও ${fmt(matches.length - shown.length)}টি মিলেছে — আরও কিছু লিখুন</div>` : '');
+    + (matchCount > shown.length ? `<div class="today-suggestion-more">আরও ${fmt(matchCount - shown.length)}টি মিলেছে — আরও কিছু লিখুন</div>` : '');
   panel.classList.remove('hidden');
   positionTodaySuggestions();
   input.setAttribute('aria-expanded', 'true');
@@ -2517,6 +2621,12 @@ function installmentChips(code) {
     + `<span class="balance-chip installment ${tone}">কিস্তি<b>৳ ${fmtMoney(amount)}</b></span>`;
 }
 
+function setTodayBalanceHTML(element, html) {
+  /* অপরিবর্তিত card পুনর্লিখলে Android WebView-এ layout/Accessibility work বাড়ে। */
+  if (element._todayBalanceHTML === html) return;
+  element.innerHTML = html;
+  element._todayBalanceHTML = html;
+}
 function renderTodayBalanceCard() {
   const el = $('#today-balance-summary');
   if (!el) return;
@@ -2534,9 +2644,9 @@ function renderTodayBalanceCard() {
   const chip = (kind, label, value) => `<span class="balance-chip ${kind}">${label}<b>${value}</b></span>`;
 
   if (!code) {
-    el.innerHTML = `<div class="balance-card is-empty">${state.balanceRows.length
+    setTodayBalanceHTML(el, `<div class="balance-card is-empty">${state.balanceRows.length
       ? `পূর্বের স্থিতির CSV লোড আছে (${fmt(state.balanceRows.length)} সারি)। মেম্বার কোড লিখুন।`
-      : 'মেম্বার কোড লিখে সদস্য ও পূর্বের স্থিতি দেখুন।'}</div>`;
+      : 'মেম্বার কোড লিখে সদস্য ও পূর্বের স্থিতি দেখুন।'}</div>`);
     return;
   }
 
@@ -2560,7 +2670,7 @@ function renderTodayBalanceCard() {
   } : null;
   const money = (value) => (base ? `৳ ${fmtMoney(value)}` : '—');
 
-  el.innerHTML = `<div class="balance-card">
+  setTodayBalanceHTML(el, `<div class="balance-card">
       <div class="balance-line">
         <span class="balance-tag">পূর্বের স্থিতি</span>
         <div class="balance-chips">
@@ -2580,17 +2690,43 @@ function renderTodayBalanceCard() {
           ${typedTotal > 0 ? `<span class="balance-chip pending">নতুন এন্ট্রি<b>৳ ${fmtMoney(typedTotal)}</b></span>` : ''}
         </div>
       </div>
-    </div>`;
+    </div>`);
 }
 
 /* সদস্য কোড মিলিয়ে কিস্তি তালিকার সারি খোঁজা — Today পেজ থেকে আদায় নিলে ওই সারিই আপডেট হয় */
 const memberCodeKey = (value) => normalizedDigits(value).replace(/^0+/, '');
+let installmentMemberLookupCache = null;
+function getInstallmentMemberLookup() {
+  const d = state.detect;
+  if (installmentMemberLookupCache
+    && installmentMemberLookupCache.rows === state.rows
+    && installmentMemberLookupCache.length === state.rows.length
+    && installmentMemberLookupCache.memberColumn === d.memberCode
+    && installmentMemberLookupCache.nameColumn === d.memberName
+    && installmentMemberLookupCache.centerColumn === d.centerCode) return installmentMemberLookupCache;
+  const byMember = new Map(), byName = new Map(), byRowIndex = new WeakMap();
+  const add = (map, key, index) => {
+    if (!key) return;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(index);
+  };
+  state.rows.forEach((row, index) => {
+    byRowIndex.set(row, index);
+    if (d.memberCode >= 0) add(byMember, memberCodeKey(row[d.memberCode]), index);
+    if (d.memberName >= 0) add(byName, norm(row[d.memberName]), index);
+  });
+  installmentMemberLookupCache = {
+    rows: state.rows, length: state.rows.length,
+    memberColumn: d.memberCode, nameColumn: d.memberName, centerColumn: d.centerCode,
+    byMember, byName, byRowIndex,
+  };
+  return installmentMemberLookupCache;
+}
 function findInstallmentRowForMember(code) {
   const d = state.detect;
   const key = memberCodeKey(code);
   if (!key || d.memberCode < 0) return -1;
-  const matches = [];
-  state.rows.forEach((row, index) => { if (memberCodeKey(row[d.memberCode]) === key) matches.push(index); });
+  const matches = getInstallmentMemberLookup().byMember.get(key) || [];
   if (!matches.length) return -1;
   const today = localDateInputValue();
   const open = matches.filter((i) => ['due', 'partial'].includes(rowStatus(state.rows[i])));
@@ -2609,8 +2745,7 @@ function installmentNameRowIndexes(memberName, centerHint = '') {
   const d = state.detect;
   const name = norm(memberName);
   if (!name || d.memberName < 0) return [];
-  let matches = [];
-  state.rows.forEach((row, index) => { if (norm(row[d.memberName]) === name) matches.push(index); });
+  let matches = [...(getInstallmentMemberLookup().byName.get(name) || [])];
   const center = normalizedDigits(centerHint).replace(/^0+/, '');
   if (center && d.centerCode >= 0 && matches.length) {
     matches = matches.filter((index) => {
@@ -2640,7 +2775,8 @@ function findInstallmentRowForEntry(item) {
 }
 function findRowByInstallmentKey(key) {
   if (!key) return -1;
-  return state.rows.findIndex((row) => installmentRowKey(row) === key);
+  const index = getInstallmentRowKeyCache().byKey.get(String(key));
+  return Number.isInteger(index) ? index : -1;
 }
 // এই এন্ট্রিটি "মাসিক আদায়" কি না — কিস্তি তালিকায় ওই সদস্য আছেন কি না
 function isMonthlyEntry(item) {
@@ -2762,8 +2898,8 @@ function renderToday() {
   const rowsWithIndex = state.todayRows.map((item, index) => ({ item, index }))
     .filter(({ item }) => entryVisibleToIdentity(item))
     .sort((a, b) => compareMemberCodes(a.item.memberCode, b.item.memberCode) || compareAZ(a.item.createdAt, b.item.createdAt));
-  const monthly = rowsWithIndex.filter(({ item }) => isMonthlyEntry(item));
-  const others = rowsWithIndex.filter(({ item }) => !isMonthlyEntry(item));
+  const monthly = [], others = [];
+  rowsWithIndex.forEach((entry) => (isMonthlyEntry(entry.item) ? monthly : others).push(entry));
 
   const totalize = (entries) => {
     const totals = entries.reduce((out, { item }) => {
@@ -2924,6 +3060,7 @@ function revertAppliedLoan(item, d = state.detect) {
   row[d.actual] = String(roundMoney(Math.max(0, num(row[d.actual]) - applied)));
   if (d.paidDate >= 0 && item.appliedPaidDate && toISODate(row[d.paidDate]) === toISODate(item.appliedPaidDate)) {
     row[d.paidDate] = item.prevPaidDate || '';
+    invalidateInstallmentRowKeyCache();
   }
   reconcilePaidArchiveRow(row);
   return true;
@@ -3155,7 +3292,10 @@ function adjustInstallmentForHistory(item, delta, d = state.detect) {
   if (idx < 0) return false;
   const row = state.rows[idx];
   row[d.actual] = String(roundMoney(Math.max(0, num(row[d.actual]) + delta)));
-  if (delta > 0 && d.paidDate >= 0) row[d.paidDate] = String(item.date || localDateInputValue()).slice(0, 10);
+  if (delta > 0 && d.paidDate >= 0) {
+    row[d.paidDate] = String(item.date || localDateInputValue()).slice(0, 10);
+    invalidateInstallmentRowKeyCache();
+  }
   reconcilePaidArchiveRow(row);
   return true;
 }
@@ -3550,7 +3690,10 @@ async function addTodayRow() {
   if (rowIndex >= 0 && loan > 0 && d.actual >= 0) {
     const row = state.rows[rowIndex];
     row[d.actual] = String(roundMoney(num(row[d.actual]) + loan));
-    if (d.paidDate >= 0) row[d.paidDate] = appliedPaidDate;
+    if (d.paidDate >= 0) {
+      row[d.paidDate] = appliedPaidDate;
+      invalidateInstallmentRowKeyCache();
+    }
     // পুরো কিস্তি শোধ হলে (বাকী → আদায় বা আংশিক → আদায়) প্রতিশ্রুতি/পরবর্তী তারিখ স্বয়ংক্রিয়ভাবে মুছে যায়
     if (num(row[d.actual]) >= num(row[d.amount])) {
       const key = followupKey(row);
@@ -3761,6 +3904,29 @@ async function applyMisFiles() {
     renderMisSlots();
   }
 }
+function clearRenderedContainers(selectors) {
+  selectors.forEach((selector) => {
+    const element = $(selector);
+    if (element?.firstChild) element.textContent = '';
+  });
+}
+function trimInactiveRenderedPages(page) {
+  const todayContainers = ['#today-monthly-list', '#today-other-list', '#today-staff-groups', '#history-list'];
+  const memberContainers = [
+    ...['today-promise', 'payable', 'due', 'paid', 'partial'].map((key) => `#table-${key} tbody`),
+    '#paid-archive-list', '#balance-directory-list',
+  ];
+  if (page === 'today') {
+    clearRenderedContainers(memberContainers);
+    return;
+  }
+  clearRenderedContainers(todayContainers);
+  if (page === 'installments') return;
+  const keep = page === 'paid-archive' ? '#paid-archive-list'
+    : page === 'balance-directory' ? '#balance-directory-list'
+      : `#table-${page} tbody`;
+  clearRenderedContainers(memberContainers.filter((selector) => selector !== keep));
+}
 function renderActivePage() {
   if (state.activePage === 'today') {
     renderToday();
@@ -3788,6 +3954,7 @@ function showPage(page, silent = false, alreadyRendered = false) {
     if ($('#f-search-key')) $('#f-search-key').value = 'memberCode';
     updateInstallmentSearchMode(false);
   }
+  trimInactiveRenderedPages(state.activePage);
   if (!alreadyRendered) renderActivePage();
   const today = state.activePage === 'today';
   $('#installment-page').classList.toggle('hidden', today);
@@ -3876,6 +4043,7 @@ function renderHeader() {
 function renderAll() {
   applyIdentityAccess();
   renderHeader();
+  trimInactiveRenderedPages(state.activePage);
   renderActivePage();
   showPage(state.activePage, true, true);
 }
@@ -4267,6 +4435,9 @@ function bindEvents() {
     todayEntryGrid.addEventListener('focusin', (event) => {
       const input = event.target.closest('input');
       if (!input) return;
+      /* Save-এর পর hidden Member List DOM থাকলেও typing শুরু হলে সেটি সরিয়ে
+         WebView হালকা রাখি; state বা saved rows মুছে যায় না। */
+      if (state.activePage === 'today') trimInactiveRenderedPages('today');
       input.classList.add('input-focus-active');
       input.closest('.field')?.classList.add('field-focus-active');
     });
@@ -4392,6 +4563,9 @@ function bindEvents() {
   // মডাল বন্ধ
   const closeModal = (overlay) => {
     if (overlay) overlay.classList.add('hidden');
+    /* 900-row member directory modal বন্ধ হলে hidden DOM জমে রাখি না;
+       আবার খুললে state থেকে table তৈরি হয়। */
+    if (overlay?.id === 'member-db-table-modal') clearRenderedContainers(['#member-db-list']);
     updateModalScrollLock();
   };
   $$('[data-close]').forEach((button) => button.addEventListener('click', () => closeModal($('#' + button.dataset.close))));

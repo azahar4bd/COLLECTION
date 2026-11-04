@@ -207,15 +207,37 @@ export const handler = async (event) => {
     const wantsMeta = ['1', 'true', 'yes'].includes(String(event.queryStringParameters?.meta ?? '').toLowerCase());
 
     if (method === 'GET' && wantsMeta) {
+      /* Poll-এর জন্য সম্পূর্ণ JSONB payload Node-এ না এনে counts SQL-ই পড়ে।
+         Browser-এর প্রয়োজন updated_at; counts-ও পুরোনো API-র মতোই থাকে। */
       const result = await sql`
-        SELECT payload, updated_at
+        SELECT updated_at,
+          CASE WHEN jsonb_typeof(payload->'rows') = 'array' THEN jsonb_array_length(payload->'rows') ELSE 0 END AS rows,
+          CASE WHEN jsonb_typeof(payload->'dailyData'->'memberDB') = 'array' THEN jsonb_array_length(payload->'dailyData'->'memberDB') ELSE 0 END AS members,
+          CASE WHEN jsonb_typeof(payload->'dailyData'->'balanceRows') = 'array' THEN jsonb_array_length(payload->'dailyData'->'balanceRows') ELSE 0 END AS balances,
+          CASE WHEN jsonb_typeof(payload->'dailyData'->'todayRows') = 'array' THEN jsonb_array_length(payload->'dailyData'->'todayRows') ELSE 0 END AS today,
+          CASE WHEN jsonb_typeof(payload->'collections') = 'array' THEN jsonb_array_length(payload->'collections') ELSE 0 END AS collections,
+          CASE WHEN jsonb_typeof(payload->'followups') = 'array' THEN jsonb_array_length(payload->'followups') ELSE 0 END AS followups,
+          CASE WHEN jsonb_typeof(payload->'history') = 'array' THEN jsonb_array_length(payload->'history') ELSE 0 END AS history,
+          CASE WHEN jsonb_typeof(payload->'dailyData'->'paidArchive') = 'array' THEN jsonb_array_length(payload->'dailyData'->'paidArchive') ELSE 0 END AS paid_archive
         FROM collection_app_state
         WHERE id = ${ROW_ID}
         LIMIT 1
       `;
       if (!result.length) return jsonResponse(200, { ...summarize({}, null), empty: true });
-      const payload = typeof result[0].payload === 'string' ? JSON.parse(result[0].payload) : result[0].payload;
-      return jsonResponse(200, summarize(payload, result[0].updated_at));
+      const meta = result[0];
+      return jsonResponse(200, {
+        updated_at: meta.updated_at || null,
+        counts: {
+          rows: Number(meta.rows) || 0,
+          members: Number(meta.members) || 0,
+          balances: Number(meta.balances) || 0,
+          today: Number(meta.today) || 0,
+          collections: Number(meta.collections) || 0,
+          followups: Number(meta.followups) || 0,
+          history: Number(meta.history) || 0,
+          paidArchive: Number(meta.paid_archive) || 0,
+        },
+      });
     }
 
     if (method === 'POST') {
